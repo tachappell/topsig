@@ -1,0 +1,310 @@
+# topsig config
+# comments begin with #
+# arguments are of the form
+# VARIABLE = VALUE
+
+# the same variables can be specified on the command line
+# in the form of -VARIABLE VALUE
+# However, strings must be quoted. e.g. 
+#  QUERY-TEXT = the quick brown fox
+# is equivalent to
+#  -QUERY-TEXT "the quick brown fox"
+# on the command line.
+
+# Additional config files can be included with:
+# CONFIG = additional_config_file.txt
+# or through specifying -CONFIG additional_config_file.txt on the
+# command line. As a general rule, the last declaration of an attribute
+# will hold, so with:
+#  TARGET-PATH = a.tar.gz
+#  TARGET-PATH = a.tar.bz2
+# the final value for TARGET-PATH will be a.tar.bz2 (unless it is
+# overridden later.
+
+#----------------------------------------------------------------------
+# INDEXING
+#----------------------------------------------------------------------
+
+# Indexing target. Specify a file or a directory of files to index.
+# Examples:
+# TARGET-PATH = foo.tar.gz
+# TARGET-PATH = ~/foo.tar.gz
+# TARGET-PATH = C:/stuff/foo.tar.gz
+# TARGET-PATH = foobar
+# TARGET-PATH = C:/stuff/foobar
+
+# Additional files/directories can be added through TARGET-PATH-2,
+# TARGET-PATH-3 etc.
+# Examples:
+# TARGET-PATH-2 = bar.tar.gz
+# TARGET-PATH-3 = somestuff
+# Virtually any number of extra targets can be added in this fashion.
+
+# The format of the target file (either a single file or a directory of
+# files)
+# Examples:
+# TARGET-FORMAT = file
+# TARGET-FORMAT = tar
+# TARGET-FORMAT = wsj
+# TARGET-FORMAT = warc
+# TARGET-FORMAT = newline
+
+# The compression format of the target.
+# Examples
+# TARGET-FORMAT-COMPRESSION = none
+# TARGET-FORMAT-COMPRESSION = gz
+# TARGET-FORMAT-COMPRESSION = bz2
+
+# Filter to run while processing documents. Unnecessary for plain text,
+# may be useful for documents with markup.
+# Examples:
+# TARGET-FORMAT-FILTER = none
+# TARGET-FORMAT-FILTER = xml
+TARGET-FORMAT-FILTER = none
+
+# How to form the document ID from the path for file system and archive
+# formats (e.g. file, tar)
+# Examples: (pages/003/15032003.xml)
+# DOCID-FORMAT = path (pages/003/15032003.xml)
+# DOCID-FORMAT = basename (15032003)
+# DOCID-FORMAT = basename.ext (15032003.xml)
+# DOCID-FORMAT = xmlfield (depends)
+# The 'xmlfield' setting finds the document ID from within the XML file,
+# specified with the configuration param XML-DOCID-FIELD. e.g.
+#   XML-DOCID-FIELD = docname
+# This would use the text between <docname> and </docname> in the file
+# as the document ID.
+DOCID-FORMAT = basename
+
+#Variables used for splitting.
+#SPLIT-TYPE - valid values are:
+#  none - no splitting
+#  hard - split on SPLIT-MAX terms
+#  sentence - split on sentence ends (essentially, on detecting a
+#             period '.') if possible
+SPLIT-TYPE = sentence
+#SPLIT-MAX - maximum number of terms to permit in a signature
+SPLIT-MAX = 512
+#SPLIT-MIN - minimum number of terms to split at. Signatures may still
+#end up with fewer terms than this
+SPLIT-MIN = 256
+
+# SIGNATURE-WIDTH - width of the signature, in bits. This should be a
+# multiple of 64 to ease in implementing fast algorithms
+#SIGNATURE-WIDTH = 2048
+#SIGNATURE-WIDTH = 1024
+SIGNATURE-WIDTH = 1024
+
+# SIGNATURE-DENSITY - proportion of trits in the signature set. The
+# density of trits set is 1/x where x is the provided value.
+# With a value of 1, all bits are set. With a value of 2, approximately
+# half of the bits are set and so on.
+SIGNATURE-DENSITY = 21
+
+# SIGNATURE-SEED - random seed to initialise the random number generator
+# with. Will results in different signatures being generated and hence
+# different results.
+SIGNATURE-SEED = 0
+
+# SIGNATURE-METHOD - method to generate the signature
+# Possible values are:
+#   TRADITIONAL - very slow, baseline approach
+#   SKIP - bits set through 'skipping' a random number of bits each time
+#          determined by the density.
+SIGNATURE-METHOD = TRADITIONAL
+
+# Path to the signature file. This is also used for searching / runs
+SIGNATURE-PATH = collection.sig
+
+# Maximum length of document name stored in the signature file. Longer
+# names will be clipped.
+# N+1 bytes are used for each signature in the signature file to store
+# the document name.
+MAX-DOCNAME-LENGTH = 255
+
+# TERM-CACHE-SIZE - number of term signatures to cache while indexing.
+# This value can be set to 0 to disable term caching, but this is not
+# recommended
+TERM-CACHE-SIZE = 65536
+
+#----------------------------------------------------------------------
+# SEARCHING
+#----------------------------------------------------------------------
+
+# SIGNATURE-CACHE-SIZE - amount (in megabytes, 1mb = 1048576 bytes) of
+# memory to use for caching signatures when searching. This value must
+# be set as it is impossible to search without a signature cache. If
+# this value is large enough to store the entire collection, it will
+# only be read once, maximising performance.
+# SIGNATURE-CACHE-SIZE = 128
+
+SIGNATURE-CACHE-SIZE = 128
+
+# PSEUDO-FEEDBACK-SAMPLE - top N results to use as pseudo feedback for
+# searching. Set to 0 to disable pseudo feedback.
+PSEUDO-FEEDBACK-SAMPLE = 3
+# PSEUDO-FEEDBACK-RERANK - top N results are reranked with pseudo
+# feedback. This should be less than or equal to QUERY-TOP-K or
+# TOPIC-OUTPUT-K
+PSEUDO-FEEDBACK-RERANK = 100
+
+# QUERY-TEXT - text of the query to use in query mode.
+# QUERY-TEXT = the quick brown fox
+QUERY-TEXT = the quick brown fox
+
+# QUERY-TOP-K - Retrieve this number of results in query mode
+QUERY-TOP-K = 100
+# QUERY-TOP-K-OUTPUT - Present this number of results as output in query
+# mode.
+QUERY-TOP-K-OUTPUT = 10
+
+#----------------------------------------------------------------------
+# TOPIC MODE
+#----------------------------------------------------------------------
+
+# TOPIC-PATH - path to topic file
+TOPIC-PATH = topics.txt
+
+# TOPIC-FORMAT
+# wsj - one topic per line e.g. "51 airbus subsidies"
+# plain - one topic per line with no topic number
+TOPIC-FORMAT = wsj
+
+# TOPIC-OUTPUT-FORMAT
+# e.g. trec, inex
+TOPIC-OUTPUT-FORMAT = trec
+
+# TOPIC-OUTPUT-K - number of results to output per topic
+TOPIC-OUTPUT-K = 100
+
+# TOPIC-OUTPUT-PATH - path to output run results to
+TOPIC-OUTPUT-PATH = output.trec
+
+# DUPLICATES_OK - multiple results with identical names can be output
+# for a single topic if this is given a value of 1.
+#DUPLICATES_OK = 0
+
+#----------------------------------------------------------------------
+# MULTITHREADING
+#----------------------------------------------------------------------
+
+# Threading mode used for indexing. Valid values are single and multi
+# INDEX-THREADING = single
+# INDEX-THREADING = multi
+INDEX-THREADING = multi
+
+# Number of worker threads to create while indexing (in multithreaded
+# mode)
+# INDEX-THREADS = 4
+INDEX-THREADS = 4
+
+# Threading mode used for searching. Valid values are single and multi
+# SEARCH-THREADING = single
+# SEARCH-THREADING = multi
+SEARCH-THREADING = multi
+
+# Number of worker threads to create while searching (in multithreaded
+# mode)
+# SEARCH-THREADS = 4
+SEARCH-THREADS = 4
+
+#----------------------------------------------------------------------
+# OUTPUT
+#----------------------------------------------------------------------
+
+# OUTPUT-PROGRESS - the level of output to display when indexing
+# documents. 'full' will likely slow down indexing.
+# OUTPUT-PROGRESS = none
+# OUTPUT-PROGRESS = periodic
+# OUTPUT-PROGRESS = full
+OUTPUT-PROGRESS = periodic
+
+# OUTPUT-PERIOD - how often, when OUTPUT-PROGRESS = periodic, to show
+# progress. A value of 10 means that every 10 documents, the current
+# progress is shown.
+OUTPUT-PERIOD = 1000
+
+# OUTPUT-PROGRESS-DOCUMENTS - this is an optional value that, if set
+# to the number of documents in being indexed, will provide a progress
+# meter when progress is output.
+
+#----------------------------------------------------------------------
+# TERM STATISTICS
+#----------------------------------------------------------------------
+
+# TERMSTATS-PATH - path to a file containing term statistics, necessary
+# for some ranking functions. Reading this in will consume some memory
+# depending on the site of the file.
+#TERMSTATS-PATH = docstats.stat
+# TERMSTATS-PATH-OUTPUT - path to write the term statistics out of in
+# statistics collection mode. If this isn't specified but
+# TERMSTATS-PATH is, that is used instead.
+#TERMSTATS-PATH-OUTPUT = docstats.stat
+# TERMSTATS-SIZE - in statistics collection mode, number of term stats
+# to keep. This should be set to a high enough number to hold every
+# unique term in the collection as additional terms will be ignored
+# once this number is reached. It uses TERMSTATS-SIZE * 72 bytes
+# of memory.
+TERMSTATS-SIZE = 1000000
+
+#----------------------------------------------------------------------
+# ISSL
+#----------------------------------------------------------------------
+
+# ISL-PATH is the path to the ISSL table file.
+#ISL-PATH = signature.issl
+
+# ISL_SLICEWIDTH - the number of bits for each ISSL slice.
+ISL_SLICEWIDTH = 16
+
+# SEARCH-DOC-THREADS - the number of threads to use when searching with ISSL
+SEARCH-DOC-THREADS = 10
+
+# SEARCH-DOC-TOPK - the number of results to return per ISSL search
+SEARCH-DOC-TOPK = 30
+
+# IDs of the first and last signatures in the signature file to search
+# for. SEARCH-DOC-FIRST = 0 and SEARCH-DOC-LAST = 9999 will search for
+# 10000 signatures.
+SEARCH-DOC-FIRST = 0
+SEARCH-DOC-LAST = 9999
+
+#----------------------------------------------------------------------
+# MISCELLANEOUS
+#----------------------------------------------------------------------
+
+# CHARMASK - Valid chars for indexing and queries
+# alpha - Alphabet characters only
+# alnum - Alphabet characters and digits only
+# all - All printable characters
+CHARMASK = alpha
+
+# STEMMER - The stemmer to use for shortening words
+# none - No stemming
+# porter - Porter stemmer
+# s - S stemmer
+STEMMER = porter
+
+# STOPLIST - Path to list of stopwords. Leave this out to avoid using a
+# stoplist at all
+STOPLIST = data/stopwords.long.txt
+
+#----------------------------------------------------------------------
+# SPECIAL
+#----------------------------------------------------------------------
+# Special arguments are used for dealing with particular collections or
+# problems.
+
+# MEDTRACK-MAPPING-FILE
+# Replaces each document ID with the result from a lookup into a
+# three column mapping file, where the first column is the docid, the
+# second column is the type and the third column is the string to
+# replace it with. If this is used, MEDTRACK-MAPPING-RECORDS should
+# be set to the number of records (lines) in the file.
+# MEDTRACK-MAPPING-FILE = UnivOfPittReportMappingToVisit.txt
+# MEDTRACK-MAPPING-RECORDS = 101712
+# If MEDTRACK-MAPPING-TYPE is used, only records of the given type are
+# included. Multiple types can be included
+# MEDTRACK-MAPPING-TYPE = DS,PGN
+
+#---------------------------------------
