@@ -4,6 +4,8 @@
 
 #include "topsig-file.h"
 
+// This code was contributed by Eric Tang
+
 int is_directory(const char *filename)
 {
 	struct stat st;
@@ -21,6 +23,3 @@ const char *getfileseparator()
 #endif
 	return SEPARATOR;
 }
-
-
-
