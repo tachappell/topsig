@@ -60,7 +60,6 @@ src/topsig-experimental-rf.o \
 src/topsig-timer.o \
 src/topsig-exhaustive-docsim.o \
 src/topsig-histogram.o \
-src/topsig-sigsearch.opp \
 src/superfasthash.o \
 src/ISAAC-rand.o
 
@@ -69,12 +68,7 @@ default:	topsig
 %.o:		%.c
 		gcc ${CCFLAGS} -c -std=gnu99 -o $@ $?
 
-%.opp:		%.cpp
-		g++ ${CCFLAGS} -c -std=c++11 -o $@ $?
-
 topsig:	${OBJS}
-		g++ -o $@ $+ ${LDFLAGS}
-topsig-alt:	${OBJS}
 		gcc -o $@ $+ ${LDFLAGS}
 
 topsig-shared:	${OBJS}

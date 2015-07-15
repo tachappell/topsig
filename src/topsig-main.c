@@ -11,8 +11,6 @@
 
 #include "topsig-experimental-rf.h"
 
-#include "topsig-sigsearch.hpp"
-
 static void usage();
 
 int main(int argc, const char **argv)
@@ -42,7 +40,6 @@ int main(int argc, const char **argv)
   else if (strcmp(argv[1], "createisl")==0) RunCreateISL();
   else if (strcmp(argv[1], "docsim")==0) RunSearchISLTurbo();
   else if (strcmp(argv[1], "exhaustive-docsim")==0) RunExhaustiveDocsimSearch();
-  else if (strcmp(argv[1], "exhaustive-docsim-pp")==0) RunExhaustiveDocsimSearchPP();
   else if (strcmp(argv[1], "experimental-reranktop")==0) ExperimentalRerankTopFile();
   else if (strcmp(argv[1], "histogram")==0) RunHistogram();
 
