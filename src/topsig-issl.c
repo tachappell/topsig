@@ -423,7 +423,7 @@ static void Output_Results(int topic_id, const ResultList *list, int top_k)
   }
 }
 
-ResultList Summarise(ScoreTable **scts, int scts_n, int top_k, int threadid)
+ResultList Summarise(ScoreTable **scts, int scts_n, int top_k)
 {
   int R_lowest_score = 0;
   int R_lowest_score_i = 0;
@@ -655,7 +655,7 @@ static void *Throughput_Job(void *input, void *thread_data)
     }
     
     ScoreTable *sct[1] = {scores};
-    T->output[doc_i] = Summarise(sct, 1, top_k, TP->threadid);
+    T->output[doc_i] = Summarise(sct, 1, top_k);
     Clarify_Results(sig_cfg, &T->output[doc_i], sig_file, sig, -1);
     if (0) {
       ISSLPseudo(sig_cfg, &T->output[doc_i], sig_file, pseudo_sig, 3);
@@ -791,6 +791,7 @@ void RunSearchISLTurbo()
     free(jobdata[i]);
   }
   for (int i = 0; i < thread_count; i++) {
+    Destroy_Score_Table(&((Worker_Throughput_perthread *)threaddata[i])->scores);
     free(threaddata[i]);
   }
   free(jobdata);
