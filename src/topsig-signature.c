@@ -216,8 +216,6 @@ void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, i
   //fprintf(stderr, "[%s]-%f\n", term, weight_multiplier);
   int weight = count * 1000;
   
-  double num_sigs = 2666198.0; // Wikipedia
-  //double num_sigs = 173252.0; // WSJ
   
   int termStats = TermFrequencyStats(term);
   if (termStats != -1) {
@@ -401,11 +399,7 @@ static void sig_SKIP_add(int *sig, randctx *R) {
     }
 }
 
-static void sig_OLD_add(int *sig, randctx *R) {
-    int pos = 0;
-    int set; // number of bits to set
-    int max_set = cfg.length/cfg.density/2; // half the number of bits
-    
+static void sig_OLD_add(int *sig, randctx *R) {    
     for (int i = 0; i < cfg.length; i++) {
       int r = rand(R)%(cfg.density * 2);
       if (r == 0) {
@@ -481,7 +475,7 @@ static void dumpsignature(Signature *sig)
   //int unused_6;
   //int unused_7;
   //int unused_8;
-  int docnamelen = cfg.docnamelen;
+  //int docnamelen = cfg.docnamelen;
   //printf("Testing printf\n");
   //printf("Testing printf with val %d\n", 166);
   //printf("docnamelen: %d\n", docnamelen);
@@ -509,7 +503,7 @@ static void dumpsignature(Signature *sig)
   fwrite(bsig, 1, cfg.length / 8, cache.fp);
 }
 
-void SignatureWrite(SignatureCache *C, Signature *sig, const char *docid)
+void SignatureWrite(SignatureCache *C, Signature *sig)
 {
   // Write the signature to a file. This takes some care as
   // this needs to be a thread-safe function. SignatureFlush
