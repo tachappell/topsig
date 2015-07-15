@@ -1013,8 +1013,6 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
   int sig_length_bytes = S->cfg.length / 8;
   sig_record_size += sig_length_bytes;
   
-  int last_lowest_dist = INT_MAX;
-  int last_lowest_qual = -1;
   int i;
   int duplicates_ok = 0;
 
@@ -1051,7 +1049,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
     int offset_begin = get_document_offset_begin(signature_header_vals);
     int offset_end = get_document_offset_end(signature_header_vals);
     
-    const char *docid = (const char *)(signature_header + docid_offset);
+    char *docid = (char *)(signature_header + docid_offset);
     unsigned int docid_hash = SuperFastHash(docid, strlen(docid));
     
     #ifndef HEAP_RESULTLIST
@@ -1103,7 +1101,6 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
         }
       }
       if (dirty) {
-        int DBG_old_lowest_j = lowest_j;
         for (int j = 0; j < topk; j++) {
           if (result_compar(&R->res[j], &R->res[lowest_j])>0) {
             lowest_j = j;

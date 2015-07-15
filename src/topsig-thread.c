@@ -257,7 +257,6 @@ struct searchthread_params_x_shared {
   
   int i;
   int n;
-  int tn;
 };
 
 struct searchthread_params_x {
@@ -272,7 +271,6 @@ void *FindHighestScoring_work_x(void *param)
 {
   struct searchthread_params_x *P = param;
   Results *R = InitialiseResults(P->S, P->topk);
-  int tn = atomic_add(&P->shared->tn, 1);
   for (;;) {
     int my_job = atomic_add(&P->shared->i, 1);
     if (my_job >= P->shared->n) break;
@@ -280,7 +278,6 @@ void *FindHighestScoring_work_x(void *param)
     int start = (long long)my_job * P->shared->count / P->shared->n;
     int count = (long long)(my_job + 1) * P->shared->count / P->shared->n - start;
     
-    //fprintf(stderr, "Thread %d, job %d, %d->%d\n", tn, my_job, start, start+count-1);
     FindHighestScoring_ReuseResults(P->S, R, start, count, P->topk, P->bsig, P->bmask);
   }
   
@@ -297,7 +294,6 @@ Results *FindHighestScoring_Threaded_X(Search *S, const int start, const int cou
   shared->count = count;
   shared->i = 0;
   shared->n = atoi(Config("SEARCH-JOBS"));
-  shared->tn = 0;
   for (int i = 0; i < threadcount; i++) {
     params[i].S = S;
     params[i].topk = topk;
