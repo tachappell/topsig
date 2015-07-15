@@ -66,6 +66,10 @@ struct Search {
     int prf_ignorefirst;
     
     struct DocumentClass *fb_classTable;
+    
+    int OnlyConsiderRelevant;
+    int MaxRelevantSamples;
+    int MaxIrrelevantSamples;
   } cfg;
 };
 
@@ -249,6 +253,26 @@ Search *InitSearch()
     }
     fclose(fp);
   }
+  
+  S->cfg.OnlyConsiderRelevant = 0;
+  C = Config("FEEDBACK-ONLY-RELEVANT");
+  if (C) {
+    S->cfg.OnlyConsiderRelevant = atoi(C);
+  }
+  
+  S->cfg.MaxRelevantSamples = INT_MAX;
+  C = Config("FEEDBACK-MAX-RELEVANT");
+  if (C) {
+    S->cfg.MaxRelevantSamples = atoi(C);
+  }
+
+  S->cfg.MaxIrrelevantSamples = INT_MAX;
+  C = Config("FEEDBACK-MAX-IRRELEVANT");
+  if (C) {
+    S->cfg.MaxIrrelevantSamples = atoi(C);
+  }
+  
+  
   
   S->entire_file_cached = -1;
   
@@ -534,89 +558,126 @@ int result_compar(const void *a, const void *b)
 void ApplyClassFeedback(Search *S, Results *R, char *docName)
 {
   int sample = S->cfg.pseudofeedback;
-  
-  double dsig[S->cfg.length];
-  memset(&dsig, 0, S->cfg.length * sizeof(double));
-  double sample_2 = ((double)sample) * 8;
-  
-  struct DocumentClass *queryClass;
-  HASH_FIND_STR(S->cfg.fb_classTable, docName, queryClass);
-      
-  for (int i = 0; i < sample; i++) {
-      double di = i;
-      
-      
-      int isRelevant = 0;
-      
-      struct DocumentClass *docClass;
-      HASH_FIND_STR(S->cfg.fb_classTable, R->res[i].docid, docClass);
-      if (docClass) {
-        if (strcmp(queryClass->cls, docClass->cls)==0) {
-          isRelevant = 1;
+  for (int pf_iteration = 0; pf_iteration < S->cfg.prf_rerankiters; pf_iteration++) {
+    
+    double dsig[S->cfg.length];
+    memset(&dsig, 0, S->cfg.length * sizeof(double));
+    double sample_2 = ((double)sample) * 8;
+    
+    struct DocumentClass *queryClass;
+    HASH_FIND_STR(S->cfg.fb_classTable, docName, queryClass);
+    
+    int num_relevant_samples = 0;
+    int num_irrelevant_samples = 0;
+    for (int i = 0; i < sample; i++) {
+        double di = i;
+        
+        
+        int isRelevant = 0;
+        
+        //int OnlyConsiderRelevant = 1;
+        
+        struct DocumentClass *docClass;
+        HASH_FIND_STR(S->cfg.fb_classTable, R->res[i].docid, docClass);
+        if (docClass) {
+          if (strcmp(queryClass->cls, docClass->cls)==0) {
+            
+            isRelevant = 1;
+          }
         }
-      }
-      
-      for (int j = 0; j < S->cfg.length; j++) {
-          double s = (R->res[i].signature[j/8] & (1 << (7 - (j%8))))>0 ? 1.0 : -1.0;
-          int dist = R->res[i].dist;
-          
+        
+        int AddToSignature = 1;
+        
+        if (S->cfg.OnlyConsiderRelevant) {
           if (!isRelevant) {
-            s *= -1.0;
+            AddToSignature = 0;
           }
-          
-          double scale;
-          
-          switch (S->cfg.prf_scalingfactor) {
+        }
+        
+        if (isRelevant) {
+          num_relevant_samples++;
+          if (num_relevant_samples > S->cfg.MaxRelevantSamples) {
+            AddToSignature = 0;
+          }
+        } else {
+          num_irrelevant_samples++;
+          if (num_irrelevant_samples > S->cfg.MaxIrrelevantSamples) {
+            AddToSignature = 0;
+          }
+        }
 
-            case SCALING_FACTOR_1:
-              scale = 1.0;
-              break;
-            case SCALING_FACTOR_1_I:
-              scale = 1.0/(di+1);
-              break;
-            case SCALING_FACTOR_1_SQRT:
-              scale = 1.0/(sqrt(di+1));
-              break;
-            case SCALING_FACTOR_1_HAMMING: /* same */
-              scale = 1.0/((double)dist);
-              break;
-            case SCALING_FACTOR_1_SQRT_HAMMING: /* same */
-              scale = 1.0/sqrt((double)dist);
-              break;
-            case SCALING_FACTOR_E_NI: /* same */
-              scale = exp(-(di + 1));
-              break;
-            case SCALING_FACTOR_DEFAULT:
-            default:
-              scale = exp(-di*di/sample_2);
-              break;
+        
+        if (AddToSignature) {
+        
+          for (int j = 0; j < S->cfg.length; j++) {
+              double s = (R->res[i].signature[j/8] & (1 << (7 - (j%8))))>0 ? 1.0 : -1.0;
+              int dist = R->res[i].dist;
+              
+              if (!isRelevant) {
+                s *= -1.0;
+              }
+              
+              double scale;
+              
+              switch (S->cfg.prf_scalingfactor) {
+
+                case SCALING_FACTOR_1:
+                  scale = 1.0;
+                  break;
+                case SCALING_FACTOR_1_I:
+                  scale = 1.0/(di+1);
+                  break;
+                case SCALING_FACTOR_1_SQRT:
+                  scale = 1.0/(sqrt(di+1));
+                  break;
+                case SCALING_FACTOR_1_HAMMING: /* same */
+                  scale = 1.0/((double)dist);
+                  break;
+                case SCALING_FACTOR_1_SQRT_HAMMING: /* same */
+                  scale = 1.0/sqrt((double)dist);
+                  break;
+                case SCALING_FACTOR_E_NI: /* same */
+                  scale = exp(-(di + 1));
+                  break;
+                case SCALING_FACTOR_DEFAULT:
+                default:
+                  scale = exp(-di*di/sample_2);
+                  break;
+              }
+                          
+              dsig[j] += scale * s;
           }
-                      
-          dsig[j] += scale * s;
-      }
+        
+        }
+    }
+    
+    //for (int j = 0; j < S->cfg.length; j++) {
+    //  printf("%f, ", dsig[j]);
+    //} 
+    //printf("\n");
+    
+    Signature *sig = NewSignature("query");
+    SignatureFillDoubles(sig, dsig);
+    
+    unsigned char bsig[S->cfg.length / 8];
+    unsigned char bmask[S->cfg.length / 8];
+    
+    FlattenSignature(sig, bsig, bmask);
+    
+    memset(bmask, 255, S->cfg.length / 8);
+    
+    int rerank_k = atoi(Config("PSEUDO-FEEDBACK-RERANK"));
+    
+    int rerank_start = 0;
+    
+    for (int i = rerank_start; i < rerank_k; i++) {
+        R->res[i].dist = DocumentDistance(S->cfg.length, bsig, bmask, R->res[i].signature);
+    }
+    
+    qsort(&R->res[rerank_start], rerank_k-rerank_start, sizeof(R->res[0]), result_compar);
+    
+    SignatureDestroy(sig);
   }
-  
-  Signature *sig = NewSignature("query");
-  SignatureFillDoubles(sig, dsig);
-  
-  unsigned char bsig[S->cfg.length / 8];
-  unsigned char bmask[S->cfg.length / 8];
-  
-  FlattenSignature(sig, bsig, bmask);
-  
-  memset(bmask, 255, S->cfg.length / 8);
-  
-  int rerank_k = atoi(Config("PSEUDO-FEEDBACK-RERANK"));
-  
-  int rerank_start = 0;
-  
-  for (int i = rerank_start; i < rerank_k; i++) {
-      R->res[i].dist = DocumentDistance(S->cfg.length, bsig, bmask, R->res[i].signature);
-  }
-  
-  qsort(&R->res[rerank_start], rerank_k-rerank_start, sizeof(R->res[0]), result_compar);
-  
-  SignatureDestroy(sig);
 }
 
 void ApplyBlindFeedback(Search *S, Results *R, int sample)
@@ -1146,10 +1207,11 @@ Results *SearchCollection(Search *S, Signature *sig, const int topk)
     sprintf(docName, "%04d", dinesha_queryid);
     
     ApplyClassFeedback(S, R, docName);
-  }
+  } else {
   
-  if (S->cfg.pseudofeedback > 0) {
-    ApplyBlindFeedback(S, R, S->cfg.pseudofeedback);
+    if (S->cfg.pseudofeedback > 0) {
+      ApplyBlindFeedback(S, R, S->cfg.pseudofeedback);
+    }
   }
     
   return R;
