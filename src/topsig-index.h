@@ -3,6 +3,6 @@
 
 void RunIndex();
 void RunTermStats();
-void Index_InitCfg();
+void InitIndexerConfig();
 
 #endif

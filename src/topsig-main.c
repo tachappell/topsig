@@ -20,21 +20,22 @@ int main(int argc, const char **argv)
     return 0;
   }
   
-  ConfigFile("config.txt");
+  InitConfigDeprecated();
+  ConfigFromFile("config.txt");
   ConfigCLI(argc, argv);
 
-  ConfigUpdate();
-  
+  ConfigInit();
+
   if (strcmp(argv[1], "index")==0 ||
       strcmp(argv[1], "query")==0 ||
       strcmp(argv[1], "topic")==0 ||
-      strcmp(argv[1], "experimental-rf")==0) Stats_InitCfg();
+      strcmp(argv[1], "experimental-rf")==0) Stats_Initcfg();
 
   if (strcmp(argv[1], "index")==0) RunIndex();
   else if (strcmp(argv[1], "query")==0) RunQuery();
   else if (strcmp(argv[1], "topic")==0) RunTopic();
   else if (strcmp(argv[1], "termstats")==0) RunTermStats();
-  
+
   // Experimental modes are not listed in the usage() function
   else if (strcmp(argv[1], "experimental-rf")==0) RunExperimentalRF();
   else if (strcmp(argv[1], "createisl")==0) RunCreateISL();

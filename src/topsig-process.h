@@ -4,7 +4,7 @@
 #include "topsig-signature.h"
 #include "topsig-document.h"
 
-void Process_InitCfg();
+void InitProcessConfig();
 void ProcessFile(SignatureCache *, Document *);
 
 #endif

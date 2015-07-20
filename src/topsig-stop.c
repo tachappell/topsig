@@ -26,27 +26,27 @@ int IsStopword(const char *term)
   struct stopword *S;
   HASH_FIND_STR(stoplist, term, S);
   if (S != NULL) return 1;
-  
+
   return 0;
 }
 
-void Stop_InitCfg()
+void InitStoplistConfig()
 {
   char *stoplist_path = Config("STOPLIST");
   if (stoplist_path == NULL) {
     return;
   }
-  
+
   FILE *fp = fopen(stoplist_path, "rb");
   if (fp == NULL) {
     fprintf(stderr, "Unable to load stoplist: %s\n", stoplist_path);
     return;
   }
   char term[TERM_MAX_LEN+1];
-  
+
   for (;;) {
     if (fscanf(fp, "%s\n", term) < 1) break;
-    strtolower(term);
+    strToLower(term);
     Stem(term);
     struct stopword *newStopword;
     HASH_FIND_STR(stoplist, term, newStopword);

@@ -1,9 +1,9 @@
 #ifndef TOPSIG_STATS_H
 #define TOPSIG_STATS_H
 
-void Stats_InitCfg();
+void Stats_Initcfg();
 
-extern int total_terms;
+extern int totalTerms;
 int TermFrequencyStats(const char *);
 int TermFrequencyDF(const char *);
 

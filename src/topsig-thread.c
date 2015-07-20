@@ -105,28 +105,28 @@ void *start_work_writer(void *sigcache_ptr)
 void *start_work(void *sigcache_ptr)
 {
   SignatureCache *C = sigcache_ptr;
-  int threadID = atomic_add(&threads_running, 1);
-  
+  int threadID = atomicFetchAndAdd(&threads_running, 1);
+
   for (;;) {
-    tsem_wait(&sem_jobs_ready);
+    WaitSemaphore(&sem_jobs_ready);
     if (finishup) break;
-    
-    int currjob = atomic_add(&jobs_start, 1) % JOB_POOL;
+
+    int currjob = atomicFetchAndAdd(&jobs_start, 1) % JOB_POOL;
 
     jobs[currjob].state = TAKEN;
     jobs[currjob].owner = threadID;
     ProcessFile(C, jobs[currjob].doc);
-    
+
     jobs[currjob].state = EMPTY;
-  
-    atomic_add(&jobs_complete, 1);
-    atomic_sub(&current_jobs, 1);
-    tsem_post(&sem_job_avail[currjob]);
+
+    atomicFetchAndAdd(&jobs_complete, 1);
+    atomicFetchAndSub(&current_jobs, 1);
+    PostSemaphore(&sem_job_avail[currjob]);
   }
-  
+
   //printf("%d> __DONE__\n", my_tid);
-  
-  atomic_sub(&threads_running, 1);
+
+  atomicFetchAndSub(&threads_running, 1);
   //pthread_exit(NULL);
   return NULL;
 }
@@ -136,10 +136,10 @@ void ProcessFile_Threaded(Document *doc)
   if (jobs_start == -1) {
     threads_running = 0;
     memset((void *)jobs, 0, sizeof(jobs));
-    
-    tsem_init(&sem_jobs_ready, 0, 0);
+
+    InitSemaphore(&sem_jobs_ready, 0, 0);
     for (int i = 0; i < JOB_POOL; i++) {
-      tsem_init(&sem_job_avail[i], 0, 1);
+      InitSemaphore(&sem_job_avail[i], 0, 1);
     }
 
     threadpool_size = atoi(Config("INDEX-THREADS"))+1;
@@ -159,17 +159,17 @@ void ProcessFile_Threaded(Document *doc)
       pthread_create(threadpool+i, NULL, start_work, threadcache[i]);
     }
   }
-  int currjob = atomic_add(&jobs_end, 1) % JOB_POOL;
+  int currjob = atomicFetchAndAdd(&jobs_end, 1) % JOB_POOL;
 
-  tsem_wait(&sem_job_avail[currjob]);
+  WaitSemaphore(&sem_job_avail[currjob]);
 
   jobs[currjob].doc = doc;
   jobs[currjob].state = READY;
 
-  atomic_add(&current_jobs, 1);
-  tsem_post(&sem_jobs_ready);
+  atomicFetchAndAdd(&current_jobs, 1);
+  PostSemaphore(&sem_jobs_ready);
   //printf("Job %d ready.\n", currjob);
-  
+
 }
 
 void Flush_Threaded()
@@ -180,14 +180,14 @@ void Flush_Threaded()
   } else {
     int jobs_ready = 1;
     while (jobs_ready > 0) {
-      tsem_getvalue(&sem_jobs_ready, &jobs_ready);
+      GetSemaphoreValue(&sem_jobs_ready, &jobs_ready);
       ThreadYield();
     }
     if (jobs_start != -1) {
       finishup = 1;
-      
+
       for (int i = 0; i < threadpool_size; i++) {
-        tsem_post(&sem_jobs_ready);
+        PostSemaphore(&sem_jobs_ready);
       }
       for (int i = 0; i < threadpool_size; i++) {
         pthread_join(threadpool[i], NULL);
@@ -210,7 +210,7 @@ struct searchthread_params {
 void *FindHighestScoring_work(void *param)
 {
   struct searchthread_params *P = param;
-  
+
   return FindHighestScoring(P->S, P->start, P->count, P->topk, P->bsig, P->bmask);
 }
 
@@ -224,7 +224,7 @@ Results *FindHighestScoring_Threaded(Search *S, const int start, const int count
     params[i].topk = topk;
     params[i].bsig = bsig;
     params[i].bmask = bmask;
-    
+
     params[i].start = (count / threadcount * i) + start;
     params[i].count = count / threadcount;
     if (i == (threadcount - 1)) {
@@ -233,7 +233,7 @@ Results *FindHighestScoring_Threaded(Search *S, const int start, const int count
     }
     pthread_create(searchthreads+i, NULL, FindHighestScoring_work, params+i);
   }
-  
+
   Results *R = NULL;
   Results *newR = NULL;
   for (int i = 0; i < threadcount; i++) {
@@ -254,7 +254,7 @@ Results *FindHighestScoring_Threaded(Search *S, const int start, const int count
 struct searchthread_params_x_shared {
   int start;
   int count;
-  
+
   int i;
   int n;
 };
@@ -272,15 +272,15 @@ void *FindHighestScoring_work_x(void *param)
   struct searchthread_params_x *P = param;
   Results *R = InitialiseResults(P->S, P->topk);
   for (;;) {
-    int my_job = atomic_add(&P->shared->i, 1);
+    int my_job = atomicFetchAndAdd(&P->shared->i, 1);
     if (my_job >= P->shared->n) break;
-    
+
     int start = (long long)my_job * P->shared->count / P->shared->n;
     int count = (long long)(my_job + 1) * P->shared->count / P->shared->n - start;
-    
+
     FindHighestScoring_ReuseResults(P->S, R, start, count, P->topk, P->bsig, P->bmask);
   }
-  
+
   return R;
 }
 
@@ -289,7 +289,7 @@ Results *FindHighestScoring_Threaded_X(Search *S, const int start, const int cou
   pthread_t searchthreads[threadcount];
   struct searchthread_params_x params[threadcount];
   struct searchthread_params_x_shared *shared = malloc(sizeof(struct searchthread_params_x_shared));
-  
+
   shared->start = start;
   shared->count = count;
   shared->i = 0;
@@ -299,12 +299,12 @@ Results *FindHighestScoring_Threaded_X(Search *S, const int start, const int cou
     params[i].topk = topk;
     params[i].bsig = bsig;
     params[i].bmask = bmask;
-    
+
     params[i].shared = shared;
-    
+
     pthread_create(searchthreads+i, NULL, FindHighestScoring_work_x, params+i);
   }
-  
+
   Results *R = NULL;
   Results *newR = NULL;
   for (int i = 0; i < threadcount; i++) {
@@ -328,7 +328,7 @@ void DivideWork(void **job_inputs, void *(*start_routine)(void*), int jobs)
   for (int i = 0; i < jobs; i++) {
     pthread_create(workthreads+i, NULL, start_routine, job_inputs[i]);
   }
-  
+
   for (int i = 0; i < jobs; i++) {
     pthread_join(workthreads[i], NULL);
   }
@@ -346,14 +346,14 @@ typedef struct {
 struct TBPHandle {
   int threads;
   pthread_t *workthreads;
-  
+
   TBPDaemon **daemons;
-  
+
   int current_task;
   void *current_task_data;
   void *(*current_task_start_routine)(void*, void*);
   int jobs_complete;
-  
+
   void **results;
 };
 
@@ -361,13 +361,13 @@ struct TBPHandle {
 
 void *tbp_thread_daemon(void *threaddata_vp) {
   TBPDaemon *D = threaddata_vp;
-  
+
   int mytask = 0;
-  
+
   for (;;) {
     // Wait for a new task
     int newtask;
-    while (atomic_cas(&D->H->current_task, mytask+1, mytask+1) == 0) {
+    while (atomicCompareAndSwap(&D->H->current_task, mytask+1, mytask+1) == 0) {
       ThreadYield();
     }
     newtask = D->H->current_task;
@@ -377,8 +377,8 @@ void *tbp_thread_daemon(void *threaddata_vp) {
     // new task
     mytask = newtask;
     D->result = D->H->current_task_start_routine(D->threaddata, D->H->current_task_data);
-    atomic_add(&D->H->jobs_complete, 1);
-    
+    atomicFetchAndAdd(&D->H->jobs_complete, 1);
+
     // and wait for a new task.
   }
   return NULL;
@@ -407,28 +407,28 @@ void **TBPDivideWork(TBPHandle *H, void *job_input, void *(*start_routine)(void*
   H->jobs_complete = 0;
   H->current_task_data = job_input;
   H->current_task_start_routine = start_routine;
-  atomic_add(&H->current_task, 1);
-  
-  while (!atomic_cas(&H->jobs_complete, H->threads, 0)) {
+  atomicFetchAndAdd(&H->current_task, 1);
+
+  while (!atomicCompareAndSwap(&H->jobs_complete, H->threads, 0)) {
     //fprintf(stderr, "[%d %d]\n", H->jobs_complete, cmp);
     ThreadYield();
   }
-  
+
   for (int i = 0; i < H->threads; i++) {
     H->results[i] = H->daemons[i]->result;
   }
-  
+
   return H->results;
-  
+
 }
 
 void TBPClose(TBPHandle *H)
 {
-  atomic_cas(&H->current_task, H->current_task, -1);
-  
+  atomicCompareAndSwap(&H->current_task, H->current_task, -1);
+
   for (int i = 0; i < H->threads; i++) {
     pthread_join(H->workthreads[i], NULL);
-    
+
     free(H->daemons[i]);
   }
   free(H->daemons);
@@ -450,7 +450,7 @@ typedef struct {
 
 void *DWTP_Worker(void *in) {
   DWTP *dwtp = in;
-  
+
   for (;;) {
     pthread_mutex_lock(dwtp->lock);
     int my_job = -1;
@@ -465,7 +465,7 @@ void *DWTP_Worker(void *in) {
     if (my_job == -1) break;
     dwtp->start_routine(dwtp->job_inputs[my_job], dwtp->thread_input);
   }
-  
+
   return NULL;
 }
 
@@ -481,7 +481,7 @@ void DivideWorkTP(void **job_inputs, void **thread_inputs, void *(*start_routine
   dwtp.thread_input = NULL;
   dwtp.job_statuses = malloc(sizeof(int) * jobs);
   dwtp.start_routine = start_routine;
-  
+
   for (int i = 0; i < jobs; i++) {
     dwtp.job_statuses[i] = 0;
   }
@@ -491,7 +491,7 @@ void DivideWorkTP(void **job_inputs, void **thread_inputs, void *(*start_routine
     per_dwtp[i].thread_input = thread_inputs[i];
     pthread_create(workthreads+i, NULL, DWTP_Worker, &per_dwtp[i]);
   }
-  
+
   for (int i = 0; i < threads; i++) {
     pthread_join(workthreads[i], NULL);
   }

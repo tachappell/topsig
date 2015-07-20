@@ -15,16 +15,16 @@ static struct {
 void readSigHeader(FILE *fp)
 {
   char sig_method[64];
-  cfg.headersize = file_read32(fp); // header-size
-  int version = file_read32(fp); // version
-  cfg.maxnamelen = file_read32(fp); // maxnamelen
-  cfg.sig_width = file_read32(fp); // sig_width
-  file_read32(fp); // sig_density
+  cfg.headersize = fileRead32(fp); // header-size
+  int version = fileRead32(fp); // version
+  cfg.maxnamelen = fileRead32(fp); // maxnamelen
+  cfg.sig_width = fileRead32(fp); // sig_width
+  fileRead32(fp); // sig_density
   if (version >= 2) {
-    file_read32(fp); // sig_seed
+    fileRead32(fp); // sig_seed
   }
   fread(sig_method, 1, 64, fp); // sig_method
-  
+
   cfg.sig_offset = cfg.maxnamelen + 1;
   cfg.sig_offset += 8 * 4; // 8 32-bit ints
   cfg.sig_record_size = cfg.sig_offset + cfg.sig_width / 8;
@@ -45,14 +45,14 @@ int main(int argc, char **argv)
     free(fileheader_buffer);
     int *prev = malloc(sizeof(int) * cfg.sig_width);
     for (int i = 0; i < cfg.sig_width; i++) prev[i] = 0;
-    
+
     unsigned char *sigheader_buffer = malloc(cfg.sig_offset);
     unsigned char *sig_buffer = malloc(cfg.sig_width / 8);
-    
+
     for (;;) {
       if (fread(sigheader_buffer, 1, cfg.sig_offset, fi) == 0) break;
       fread(sig_buffer, 1, cfg.sig_width / 8, fi);
-      
+
       for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], (char *)sigheader_buffer)==0) {
           printf("%s\n", sigheader_buffer);

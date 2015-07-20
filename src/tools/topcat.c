@@ -20,16 +20,16 @@ static struct {
 
 void readSigHeader(FILE *fp)
 {
-  cfg.headersize = file_read32(fp); // header-size
-  cfg.version = file_read32(fp); // version
-  cfg.maxnamelen = file_read32(fp); // maxnamelen
-  cfg.sig_width = file_read32(fp); // sig_width
-  cfg.density = file_read32(fp); // sig_density
+  cfg.headersize = fileRead32(fp); // header-size
+  cfg.version = fileRead32(fp); // version
+  cfg.maxnamelen = fileRead32(fp); // maxnamelen
+  cfg.sig_width = fileRead32(fp); // sig_width
+  cfg.density = fileRead32(fp); // sig_density
   if (cfg.version >= 2) {
-    cfg.seed = file_read32(fp); // sig_seed
+    cfg.seed = fileRead32(fp); // sig_seed
   }
   fread(cfg.sig_method, 1, 64, fp); // sig_method
-  
+
   cfg.sig_offset = cfg.maxnamelen + 1;
   cfg.sig_offset += 8 * 4; // 8 32-bit ints
   cfg.sig_record_size = cfg.sig_offset + cfg.sig_width / 8;
@@ -37,33 +37,33 @@ void readSigHeader(FILE *fp)
 
 int checkSigHeader(FILE *fp, const char *filename)
 {
-  if (cfg.headersize != file_read32(fp)) {
+  if (cfg.headersize != fileRead32(fp)) {
     fprintf(stderr, "Error: %s is an incompatible signature (differing header sizes)\n", filename);
     return 0;
   }
-  if (cfg.version != file_read32(fp)) {
+  if (cfg.version != fileRead32(fp)) {
     fprintf(stderr, "Error: %s is an incompatible signature (differing signature versions)\n", filename);
     return 0;
   }
-  if (cfg.maxnamelen != file_read32(fp)) {
+  if (cfg.maxnamelen != fileRead32(fp)) {
     fprintf(stderr, "Error: %s is an incompatible signature (differing maximum name lengths)\n", filename);
     return 0;
   }
-  if (cfg.sig_width != file_read32(fp)) {
+  if (cfg.sig_width != fileRead32(fp)) {
     fprintf(stderr, "Error: %s is an incompatible signature (differing signature widths)\n", filename);
     return 0;
   }
-  if (cfg.density != file_read32(fp)) {
+  if (cfg.density != fileRead32(fp)) {
     fprintf(stderr, "Error: %s is an incompatible signature (differing signature densities)\n", filename);
     return 0;
   }
   if (cfg.version >= 2) {
-    if (cfg.seed != file_read32(fp)) {
+    if (cfg.seed != fileRead32(fp)) {
       fprintf(stderr, "Error: %s is an incompatible signature (differing seeds)\n", filename);
       return 0;
     }
   }
-  
+
   char sig_method[64];
   fread(sig_method, 1, 64, fp); // sig_method
   if (strcmp(sig_method, cfg.sig_method) != 0) {
@@ -90,11 +90,11 @@ int main(int argc, char **argv)
       fread(fileheader_buffer, 1, cfg.headersize, fi);
       fwrite(fileheader_buffer, 1, cfg.headersize, fo);
       fclose(fi);
-      
+
       unsigned char *sig_buffer = malloc(cfg.sig_record_size);
-      
+
       int sig_count = 0;
-      
+
       for (int argi = 2; argi < argc; argi++) {
 
         if ((fi = fopen(argv[argi], "rb"))) {
@@ -110,7 +110,7 @@ int main(int argc, char **argv)
           for (;;) {
             if (fread(sig_buffer, 1, cfg.sig_record_size, fi) == 0) break;
             fwrite(sig_buffer, 1, cfg.sig_record_size, fo);
-            
+
             file_sig_count++;
             sig_count++;
             if ((file_sig_count % SIG_PROGRESS_INTERVAL)==0) {
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
           fprintf(stderr, "Unable to open input file %s\n", argv[argi]);
         }
       }
-      
+
       fprintf(stderr, "Finished writing %s. %d signatures written\n", argv[1], sig_count);
       free(sig_buffer);
 

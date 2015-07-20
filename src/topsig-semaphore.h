@@ -5,10 +5,10 @@ typedef struct {
   volatile int val;
 } TSemaphore;
 
-void tsem_init(TSemaphore *S, int compat, int val);
-void tsem_wait(TSemaphore *S);
-int tsem_trywait(TSemaphore *S);
-void tsem_post(TSemaphore *S);
-void tsem_getvalue(TSemaphore *S, int *out);
+void InitSemaphore(TSemaphore *S, int compat, int val);
+void WaitSemaphore(TSemaphore *S);
+int TryWaitSemaphore(TSemaphore *S);
+void PostSemaphore(TSemaphore *S);
+void GetSemaphoreValue(TSemaphore *S, int *out);
 
 #endif

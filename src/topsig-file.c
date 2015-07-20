@@ -6,7 +6,7 @@
 
 // This code was contributed by Eric Tang
 
-int is_directory(const char *filename)
+int IsDirectory(const char *filename)
 {
 	struct stat st;
 	if( stat(filename, &st) == 0)
@@ -14,7 +14,7 @@ int is_directory(const char *filename)
 	return 0;
 }
 
-const char *getfileseparator()
+const char *GetDirSeparator()
 {
 #if defined(WINDOWS) || defined(_WIN32) || defined(_WIN64)
 	static const char *SEPARATOR = "\\";

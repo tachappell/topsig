@@ -19,7 +19,7 @@ void s_stem(char *s)
 {
   // S-stemmer, described by Harman in 'How Effective is Suffixing'
   int s_len = strlen(s);
-  
+
   if (s_len >= 4) {
     if (strcmp(s+s_len-3, "ies")==0) {
       if (strcmp(s+s_len-4, "eies")!=0) {
@@ -60,15 +60,15 @@ char *Stem(char *str) {
     default:
       break;
   }
-  
+
   return str;
 }
 
 
-void Stem_InitCfg()
+void InitStemmingConfig()
 {
   const char *s = Config("STEMMER");
-  
+
   if (strcmp(s, "porter")==0) {
     currentStemmer = PORTER;
     return;

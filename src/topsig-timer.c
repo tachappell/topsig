@@ -3,23 +3,23 @@
 #include "topsig-timer.h"
 
 
-timer timer_start() {
-  timer t;
-  gettimeofday(&t.start_time, NULL);
-  t.last_time = t.start_time;
+Timer StartTimer() {
+  Timer t;
+  gettimeofday(&t.startTime, NULL);
+  t.previousTime = t.startTime;
   return t;
 }
-double timer_tick(timer *t) {
-  struct timeval curr_time;
-  gettimeofday(&curr_time, NULL);
+double TickTimer(Timer *t) {
+  struct timeval currTime;
+  gettimeofday(&currTime, NULL);
 
-  double last_elapsed_ms = (curr_time.tv_sec - t->last_time.tv_sec) * 1000.0 + (curr_time.tv_usec - t->last_time.tv_usec) / 1000.0;
-  t->last_time = curr_time;
+  double last_elapsed_ms = (currTime.tv_sec - t->previousTime.tv_sec) * 1000.0 + (currTime.tv_usec - t->previousTime.tv_usec) / 1000.0;
+  t->previousTime = currTime;
 
   return last_elapsed_ms;
 }
-double get_total_time(timer *t) {
-  double total_elapsed_ms = (t->last_time.tv_sec - t->start_time.tv_sec) * 1000.0 + (t->last_time.tv_usec - t->start_time.tv_usec) / 1000.0;
+double GetTotalTime(Timer *t) {
+  double total_elapsed_ms = (t->previousTime.tv_sec - t->startTime.tv_sec) * 1000.0 + (t->previousTime.tv_usec - t->startTime.tv_usec) / 1000.0;
 
   return total_elapsed_ms;
 }

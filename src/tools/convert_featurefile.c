@@ -47,7 +47,7 @@ struct filedata {
   struct point *points;
 };
 
-inline static void file_write32(int val, FILE *fp)
+inline static void fileWrite32(int val, FILE *fp)
 {
   fputc((val >> 0) & 0xFF, fp);
   fputc((val >> 8) & 0xFF, fp);
@@ -55,7 +55,7 @@ inline static void file_write32(int val, FILE *fp)
   fputc((val >> 24) & 0xFF, fp);
 }
 
-inline static int file_read32(FILE *fp)
+inline static int fileRead32(FILE *fp)
 {
   unsigned int r = fgetc(fp);
   r |= fgetc(fp) << 8;
@@ -64,13 +64,13 @@ inline static int file_read32(FILE *fp)
   return r;
 }
 
-inline static void file_write16(int val, FILE *fp)
+inline static void fileWrite16(int val, FILE *fp)
 {
   fputc((val >> 0) & 0xFF, fp);
   fputc((val >> 8) & 0xFF, fp);
 }
 
-inline static int file_read16(FILE *fp)
+inline static int fileRead16(FILE *fp)
 {
   unsigned int r = fgetc(fp);
   r |= fgetc(fp) << 8;
@@ -88,64 +88,64 @@ int main(int argc, char **argv)
   if ((fi = fopen(argv[1], "rb"))) {
     if ((fo = fopen(argv[2], "wb"))) {
       // Read feature file
-      file_read32(fi); // header, unused
-      int featuresPerDescriptor = file_read32(fi);
-      file_read32(fi); // featuresCount, unused
-      int count = file_read32(fi);
-      
+      fileRead32(fi); // header, unused
+      int featuresPerDescriptor = fileRead32(fi);
+      fileRead32(fi); // featuresCount, unused
+      int count = fileRead32(fi);
+
       size_t D_size = sizeof(struct filedata) * count;
       struct filedata *D = malloc(D_size);
-                  
+
       for (int i = 0; i < count; i++) {
         int filename_len = fgetc(fi);
         D[i].filename = malloc(filename_len + 1);
         fread(D[i].filename, 1, filename_len, fi);
         D[i].filename[filename_len] = '\0';
-        D[i].len = file_read32(fi);
-        D[i].w = file_read16(fi);
-        D[i].h = file_read16(fi);
+        D[i].len = fileRead32(fi);
+        D[i].w = fileRead16(fi);
+        D[i].h = fileRead16(fi);
         D[i].points = malloc(sizeof(struct point) * D[i].len);
       }
-      
+
       for (int i = 0; i < count; i++) {
         for (int pt = 0; pt < D[i].len; pt++) {
-          D[i].points[pt].x = file_read16(fi);
-          D[i].points[pt].y = file_read16(fi);
+          D[i].points[pt].x = fileRead16(fi);
+          D[i].points[pt].y = fileRead16(fi);
         }
         for (int pt = 0; pt < D[i].len; pt++) {
           D[i].points[pt].features = malloc(featuresPerDescriptor);
           fread(D[i].points[pt].features, featuresPerDescriptor, 1, fi);
         }
       }
-      
-      // Write signature file      
-      file_write32(88, fo); // header size
-      file_write32(2, fo); // ver
-      file_write32(DOCNAMELEN, fo); // namelen
-      file_write32(featuresPerDescriptor * 8, fo); // signature width
-      file_write32(0, fo); // signature density
-      file_write32(0, fo); // seed
+
+      // Write signature file
+      fileWrite32(88, fo); // header size
+      fileWrite32(2, fo); // ver
+      fileWrite32(DOCNAMELEN, fo); // namelen
+      fileWrite32(featuresPerDescriptor * 8, fo); // signature width
+      fileWrite32(0, fo); // signature density
+      fileWrite32(0, fo); // seed
       char sig_gen_method[64] = "";
       fwrite(sig_gen_method, 1, 64, fo); // method
-      
+
       for (int i = 0; i < count; i++) {
         for (int pt = 0; pt < D[i].len; pt++) {
           char sig_name[DOCNAMELEN + 1];
           memset(sig_name, '\0', DOCNAMELEN + 1); // writing out uninitialised memory is a bad idea
           sprintf(sig_name, "%s_%d,%d", D[i].filename, D[i].points[pt].x, D[i].points[pt].y);
           fwrite(sig_name, 1, DOCNAMELEN + 1, fo); // filename
-          file_write32(0, fo); // unique terms
-          file_write32(0, fo); // length
-          file_write32(0, fo); // total terms
-          file_write32(0, fo); // quality
-          file_write32(0, fo); // start
-          file_write32(0, fo); // end
-          file_write32(0, fo); // unused
-          file_write32(0, fo); // unused
+          fileWrite32(0, fo); // unique terms
+          fileWrite32(0, fo); // length
+          fileWrite32(0, fo); // total terms
+          fileWrite32(0, fo); // quality
+          fileWrite32(0, fo); // start
+          fileWrite32(0, fo); // end
+          fileWrite32(0, fo); // unused
+          fileWrite32(0, fo); // unused
           fwrite(D[i].points[pt].features, featuresPerDescriptor, 1, fo); // signature
         }
       }
-      
+
       fclose(fo);
     } else {
       fprintf(stderr, "Unable to open output file\n");

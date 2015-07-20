@@ -4,45 +4,38 @@
 #include "topsig-global.h"
 #include "topsig-document.h"
 
-typedef struct {
-  int dummy;
-} Document_private;
-
-Document *NewDocument(const char *docid, const char *data)
+Document *NewDocument(const char *docId, const char *data)
 {
   Document *newDoc = malloc(sizeof(Document));
-  Document_private *p = malloc(sizeof(Document_private));
-  
-  newDoc->docid = NULL;
+
+  newDoc->docId = NULL;
   newDoc->data = NULL;
-  newDoc->data_length = 0;
-  newDoc->stats.total_terms = 0;
-  newDoc->stats.unique_terms = 0;
-  newDoc->p = p;
-  
-  if (docid) {
-    int docid_len = strlen(docid);
-    newDoc->docid = malloc(docid_len + 1);
-    strcpy(newDoc->docid, docid);
+  newDoc->dataLength = 0;
+  newDoc->stats.totalTerms = 0;
+  newDoc->stats.uniqueTerms = 0;
+
+  if (docId) {
+    int docIdLength = strlen(docId);
+    newDoc->docId = malloc(docIdLength + 1);
+    strcpy(newDoc->docId, docId);
   }
   if (data) {
     int data_len = strlen(data);
     newDoc->data = malloc(data_len + 1);
-    newDoc->data_length = data_len;
+    newDoc->dataLength = data_len;
   }
-  
+
   return newDoc;
 }
 
 void FreeDocument(Document *doc)
 {
-  free(doc->p);
-  if (doc->docid) free(doc->docid);
+  if (doc->docId) free(doc->docId);
   if (doc->data) free(doc->data);
   free(doc);
 }
 
 int DocumentQuality(const Document *doc)
 {
-  return doc->data_length;
+  return doc->dataLength;
 }

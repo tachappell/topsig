@@ -18,7 +18,7 @@ typedef struct {
   unsigned int freq_terms;
   UT_hash_handle hh;
 } StatTerm;
-int total_terms;
+int totalTerms;
 
 static StatTerm *termtable = NULL;
 static StatTerm *termlist = NULL;
@@ -64,7 +64,7 @@ void AddTermStat(const char *word, int count)
       cterm->t = word_hash;
       cterm->freq_docs = 1;
       cterm->freq_terms = count;
-      
+
       HASH_ADD_INT(termtable, t, cterm);
       termlist_count++;
     }
@@ -74,10 +74,10 @@ void AddTermStat(const char *word, int count)
   }
 }
 
-void Stats_InitCfg()
+void Stats_Initcfg()
 {
   if (termlist) return;
-  total_terms = 0;
+  totalTerms = 0;
   char *termstats_path = Config("TERMSTATS-PATH");
   if (termstats_path) {
     FILE *fp = fopen(termstats_path, "rb");
@@ -86,16 +86,16 @@ void Stats_InitCfg()
     int records = ftell(fp) / (4 + 4 + 4);
     fseek(fp, 0, SEEK_SET);
     termlist = malloc(sizeof(StatTerm) * records);
-    
+
     int pips_drawn = -1;
     fprintf(stderr, "\n");
     for (int i = 0; i < records; i++) {
-      termlist[i].t = file_read32(fp);
-      termlist[i].freq_docs = file_read32(fp);
-      termlist[i].freq_terms = file_read32(fp);
-      total_terms += termlist[i].freq_terms;
+      termlist[i].t = fileRead32(fp);
+      termlist[i].freq_docs = fileRead32(fp);
+      termlist[i].freq_terms = fileRead32(fp);
+      totalTerms += termlist[i].freq_terms;
       StatTerm *cterm = termlist + i;
-      
+
       HASH_ADD_INT(termtable, t, cterm);
 
       int pips = ((i + 1) * 10 + (records / 2)) / records;
@@ -110,7 +110,7 @@ void Stats_InitCfg()
 
     }
     fprintf(stderr, "\n");
-    
+
     fclose(fp);
   }
 }
@@ -126,27 +126,27 @@ void WriteStats()
     fprintf(stderr, "Error: undefined termstats output path\n");
     exit(1);
   }
-  
+
   if (!fp) {
     fprintf(stderr, "Error: unable to write termstats\n");
     exit(1);
   }
-  int total_terms = 0;
+  int totalTerms = 0;
   StatTerm *cterm = termlist;
   int termlist_added = 0;
   for (int i = 0; i < termlist_count; i++) {
     if (cterm->freq_docs > 1) {
-      file_write32(cterm->t, fp);
-      file_write32(cterm->freq_docs, fp);
-      file_write32(cterm->freq_terms, fp);
+      fileWrite32(cterm->t, fp);
+      fileWrite32(cterm->freq_docs, fp);
+      fileWrite32(cterm->freq_terms, fp);
       termlist_added++;
     }
-    
-    total_terms += cterm->freq_terms;
+
+    totalTerms += cterm->freq_terms;
     cterm++;
   }
   fclose(fp);
-  
+
   fprintf(stderr, "\n%d unique terms (%d written)\n", termlist_count, termlist_added);
-  fprintf(stderr, "%d total terms\n", total_terms);
+  fprintf(stderr, "%d total terms\n", totalTerms);
 }

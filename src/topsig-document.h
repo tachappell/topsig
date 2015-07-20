@@ -2,17 +2,17 @@
 #define TOPSIG_DOCUMENT_H
 
 typedef struct {
-  char *docid;
+  char *docId;
   char *data;
-  int data_length;
+  int dataLength;
   struct {
-    int total_terms;
-    int unique_terms;
+    int totalTerms;
+    int uniqueTerms;
   } stats;
   void *p;
 } Document;
 
-Document *NewDocument(const char *docid, const char *data);
+Document *NewDocument(const char *docId, const char *data);
 void FreeDocument(Document *doc);
 int DocumentQuality(const Document *doc);
 

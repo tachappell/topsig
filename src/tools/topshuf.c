@@ -14,16 +14,16 @@ static struct {
 void readSigHeader(FILE *fp)
 {
   char sig_method[64];
-  cfg.headersize = file_read32(fp); // header-size
-  int version = file_read32(fp); // version
-  cfg.maxnamelen = file_read32(fp); // maxnamelen
-  cfg.sig_width = file_read32(fp); // sig_width
-  file_read32(fp); // sig_density
+  cfg.headersize = fileRead32(fp); // header-size
+  int version = fileRead32(fp); // version
+  cfg.maxnamelen = fileRead32(fp); // maxnamelen
+  cfg.sig_width = fileRead32(fp); // sig_width
+  fileRead32(fp); // sig_density
   if (version >= 2) {
-    file_read32(fp); // sig_seed
+    fileRead32(fp); // sig_seed
   }
   fread(sig_method, 1, 64, fp); // sig_method
-  
+
   cfg.sig_offset = cfg.maxnamelen + 1;
   cfg.sig_offset += 8 * 4; // 8 32-bit ints
   cfg.sig_record_size = cfg.sig_offset + cfg.sig_width / 8;
@@ -44,17 +44,17 @@ int main(int argc, char **argv)
       off_t filesize = ftello(fi);
       filesize -= cfg.headersize;
       int numsigs = filesize / cfg.sig_record_size;
-      
+
       rewind(fi);
       unsigned char *fileheader_buffer = malloc(cfg.headersize);
       fread(fileheader_buffer, 1, cfg.headersize, fi);
       fwrite(fileheader_buffer, 1, cfg.headersize, fo);
       free(fileheader_buffer);
-      
+
       fprintf(stderr, "Reading %d signatures...\n", numsigs);
       unsigned char *sig_buffer = malloc((size_t)filesize);
       fread(sig_buffer, cfg.sig_record_size, numsigs, fi);
-      
+
       int *shuffle = malloc(sizeof(int) * numsigs);
       for (int i = 0; i < numsigs; i++) {
         shuffle[i] = i;
@@ -69,8 +69,8 @@ int main(int argc, char **argv)
         unsigned char *sig_pos = sig_buffer+ cfg.sig_record_size * shuffle[i];
         fwrite(sig_pos, cfg.sig_record_size, 1, fo);
       }
-      
-      
+
+
       free(sig_buffer);
       fclose(fo);
     } else {

@@ -1,15 +1,19 @@
 #ifndef TOPSIG_CONFIG_H
 #define TOPSIG_CONFIG_H
 
-void ConfigFile(const char *configFile);
+void InitConfigDeprecated();
+void ConfigFromFile(const char *configFile);
 void ConfigCLI(int argc, const char **argv);
 
 char *Config(const char *var);
 
-void ConfigOverride(const char *var, const char *val);
+void OverrideConfigParam(const char *var, const char *val);
 
-void ConfigUpdate();
+void ConfigInit();
 
-char *trim(char *string);
+const char *GetOptionalConfig(const char *var, const char *def);
+const char *GetMandatoryConfig(const char *var, const char *err);
+int GetBooleanConfig(const char *var, int def);
+int GetIntegerConfig(const char *var, int def);
 
 #endif

@@ -4,8 +4,8 @@
 union FileHandle;
 typedef union FileHandle FileHandle;
 
-FileHandle *file_open(const char *);
-int file_read(void *, int, FileHandle *);
-void file_close(FileHandle *);
+FileHandle *OpenFile(const char *);
+int ReadFile(void *, int, FileHandle *);
+void CloseFile(FileHandle *);
 
 #endif

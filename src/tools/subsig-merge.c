@@ -17,17 +17,17 @@ static struct {
 
 void readSigHeader(FILE *fp)
 {
-  cfg.headersize = file_read32(fp); // header-size
-  cfg.version = file_read32(fp); // version
-  cfg.maxnamelen = file_read32(fp); // maxnamelen
-  cfg.sig_width = file_read32(fp); // sig_width
-  cfg.density = file_read32(fp); // sig_density
+  cfg.headersize = fileRead32(fp); // header-size
+  cfg.version = fileRead32(fp); // version
+  cfg.maxnamelen = fileRead32(fp); // maxnamelen
+  cfg.sig_width = fileRead32(fp); // sig_width
+  cfg.density = fileRead32(fp); // sig_density
   cfg.seed = 0;
   if (cfg.version >= 2) {
-    cfg.seed = file_read32(fp); // sig_seed
+    cfg.seed = fileRead32(fp); // sig_seed
   }
   fread(cfg.sig_method, 1, 64, fp); // sig_method
-  
+
   cfg.sig_offset = cfg.maxnamelen + 1;
   cfg.sig_offset += 8 * 4; // 8 32-bit ints
   cfg.sig_record_size = cfg.sig_offset + cfg.sig_width / 8;
@@ -57,32 +57,32 @@ int main(int argc, char **argv)
     if ((fo = fopen(argv[2], "wb"))) {
       int mergecount = atoi(argv[3]);
       readSigHeader(fi);
-      
-      file_write32(cfg.headersize, fo);
-      file_write32(cfg.version, fo);
-      file_write32(cfg.maxnamelen, fo);
-      file_write32(cfg.sig_width * mergecount, fo);
-      file_write32(cfg.density, fo);
+
+      fileWrite32(cfg.headersize, fo);
+      fileWrite32(cfg.version, fo);
+      fileWrite32(cfg.maxnamelen, fo);
+      fileWrite32(cfg.sig_width * mergecount, fo);
+      fileWrite32(cfg.density, fo);
       if (cfg.version >= 2) {
-        file_write32(cfg.seed, fo);
+        fileWrite32(cfg.seed, fo);
       }
       fwrite(cfg.sig_method, 1, 64, fo);
-      
+
       unsigned char *sigheader_buffer = malloc(cfg.sig_offset);
       unsigned char *sig_buffer = malloc(cfg.sig_width / 8 * mergecount);
-      
+
       for (;;) {
         if (fread(sigheader_buffer, 1, cfg.sig_offset, fi) == 0) break;
-        
+
         fwrite(sigheader_buffer, 1, cfg.sig_offset, fo);
         fread(sig_buffer, 1, cfg.sig_width / 8, fi);
         //fwrite(sig_buffer, 1, cfg.sig_width / 8, fo);
-        
+
         for (int i = 1; i < mergecount; i++) {
           fread(sigheader_buffer, 1, cfg.sig_offset, fi);
           fread(sig_buffer + (cfg.sig_width / 8) * i, 1, cfg.sig_width / 8, fi);
         }
-        
+
         qsort(sig_buffer, mergecount, (cfg.sig_width / 8), sig_compar);
         fwrite(sig_buffer, (cfg.sig_width / 8), mergecount, fo);
       }

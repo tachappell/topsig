@@ -13,10 +13,10 @@ typedef struct {
 
 category *cats = NULL;
 
-static void add_category(char *docid, char *tagbuf)
+static void add_category(char *docId, char *tagbuf)
 {
   //printf("%s - %s\n", docid, tagbuf);
-  
+
   category *C;
   HASH_FIND_STR(cats, tagbuf, C);
   if (!C) {
@@ -28,20 +28,20 @@ static void add_category(char *docid, char *tagbuf)
   C->uses++;
 }
 
-static void write_category(char *docid, char *tagbuf)
+static void write_category(char *docId, char *tagbuf)
 {
   //printf("%s - %s\n", docid, tagbuf);
-  
+
   category *C;
   HASH_FIND_STR(cats, tagbuf, C);
   if (C) {
     if (C->uses >= 1000) {
-      printf("%s %s\n", docid, tagbuf);
+      printf("%s %s\n", docId, tagbuf);
     }
   }
 }
 
-static void processfile(char *docid, char *tags, void (*processcat)(char *, char *))
+static void processfile(char *docId, char *tags, void (*processcat)(char *, char *))
 {
   char tagbuf[256];
   char *p = tags;
@@ -59,7 +59,7 @@ static void processfile(char *docid, char *tags, void (*processcat)(char *, char
         if (p - ob < 255) {
           memcpy(tagbuf, ob, p - ob);
           tagbuf[p - ob] = '\0';
-          processcat(docid, tagbuf);
+          processcat(docId, tagbuf);
         }
         ob = NULL;
       }
@@ -72,7 +72,7 @@ static void processfile(char *docid, char *tags, void (*processcat)(char *, char
     if (p - ob < 255) {
       memcpy(tagbuf, ob, p - ob);
       tagbuf[p - ob] = '\0';
-      processcat(docid, tagbuf);
+      processcat(docId, tagbuf);
     }
     ob = NULL;
   }
@@ -84,49 +84,49 @@ static void wsjread(FILE *fp, void (*process_fn)(char *, char *))
   char *doc_end;
 
   char buf[BUFFER_SIZE];
-  
+
   int buflen = fread(buf, 1, BUFFER_SIZE-1, fp);
   int doclen;
   buf[buflen] = '\0';
-  
+
   for (;;) {
     if ((doc_start = strstr(buf, "<DOC>")) != NULL) {
       if ((doc_end = strstr(buf, "</DOC>")) != NULL) {
         doc_end += 7;
         doclen = doc_end-buf;
         //printf("Document found, %d bytes large\n", doclen);
-        
+
         char *docid_start = strstr(buf, "<DOCNO>");
         char *docid_end = strstr(docid_start+1, "</DOCNO>");
-        
+
         docid_start += 1;
         docid_end -= 1;
-        
+
         docid_start += 7;
-        
+
         int docid_len = docid_end - docid_start;
-        char *docid = malloc(docid_len + 1);
-        memcpy(docid, docid_start, docid_len);
-        docid[docid_len] = '\0';
-        
+        char *docId = malloc(docid_len + 1);
+        memcpy(docId, docid_start, docid_len);
+        docId[docid_len] = '\0';
+
         char *title_start = strstr(buf, "<IN>");
         char *title_end = strstr(title_start+1, "</IN>");
-        
+
         title_start += 1;
         title_end -= 0;
-        
+
         title_start += 4;
-        
+
         int title_len = title_end - title_start;
         char *filename = malloc(title_len + 1);
         memcpy(filename, title_start, title_len);
         filename[title_len] = '\0';
-        
-        processfile(docid, filename, process_fn);
-                
+
+        processfile(docId, filename, process_fn);
+
         memmove(buf, doc_end, buflen-doclen);
         buflen -= doclen;
-        
+
         buflen += fread(buf+buflen, 1, BUFFER_SIZE-1-buflen, fp);
         buf[buflen] = '\0';
       }
@@ -146,7 +146,7 @@ int cat_compar(void *A, void *B)
 void print_top()
 {
   HASH_SORT(cats, cat_compar);
-  
+
   category *curr, *tmp;
 
   int n = 0;
@@ -166,7 +166,7 @@ int main(int argc, char **argv)
   }
 
   FILE *fi_xml = fopen(argv[1], "rb");
-  
+
   fprintf(stderr, "Reading %s", argv[1]);
   wsjread(fi_xml, add_category);
   rewind(fi_xml);

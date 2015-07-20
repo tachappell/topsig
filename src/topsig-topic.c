@@ -9,12 +9,12 @@
 void run_topic(Search *S, const char *topic_id, const char *topic_txt, const char *topic_refine, FILE *fp)
 {
   static void (*outputwriter)(FILE *fp, const char *, Results *) = NULL;
-  
+
   outputwriter = Writer_trec;
   int num = atoi(Config("TOPIC-OUTPUT-K"));
-    
+
   Results *R = NULL;
-  if (lc_strcmp(Config("TOPIC-REFINE-INVERT"), "true")!=0) {
+  if (strcmp_lc(Config("TOPIC-REFINE-INVERT"), "true")!=0) {
     R = SearchCollectionQuery(S, topic_txt, num);
     if (topic_refine && atoi(Config("TOPIC-REFINE-K"))>0) {
       ApplyFeedback(S, R, topic_refine, atoi(Config("TOPIC-REFINE-K")));
@@ -26,9 +26,9 @@ void run_topic(Search *S, const char *topic_id, const char *topic_txt, const cha
     }
   }
 
-  
+
   outputwriter(fp, topic_id, R);
-  
+
   FreeResults(R);
 }
 
@@ -68,7 +68,7 @@ void reader_wsj(Search *S, FILE *in, FILE *out)
 int readutf8char(FILE *fp)
 {
   int c = fgetc(fp);
-  
+
   if (c == EOF) return EOF;
   if (c >= 192) {
     int seqlen = 2;
@@ -76,7 +76,7 @@ int readutf8char(FILE *fp)
     seqlen += c >= 240 ? 1 : 0;
     seqlen += c >= 248 ? 1 : 0;
     seqlen += c >= 252 ? 1 : 0;
-    
+
     c = '?';
     for (int i = 1; i < seqlen; i++) {
       fgetc(fp);
@@ -103,9 +103,9 @@ void reader_plagdet(Search *S, FILE *in, FILE *out)
     }
     topic_txt_cur[topic_txt_cur_len++] = '.';
     topic_txt_cur[topic_txt_cur_len] = 0;
-    
+
     if (c == EOF) break;
-    
+
     strcat(topic_txt, topic_txt_cur);
     if (strlen(topic_txt) >= 5) {
       sprintf(topic_id, "%d", topicnum);
@@ -129,22 +129,22 @@ void RunTopic()
   const char *topicpath = Config("TOPIC-PATH");
   const char *topicformat = Config("TOPIC-FORMAT");
   const char *topicoutput = Config("TOPIC-OUTPUT-PATH");
-  
-  if (lc_strcmp(topicformat, "wsj")==0) topicreader = reader_wsj;
-  if (lc_strcmp(topicformat, "filelist_rf")==0) topicreader = reader_filelist_rf;
-  if (lc_strcmp(topicformat, "plagdet")==0) topicreader = reader_plagdet;
+
+  if (strcmp_lc(topicformat, "wsj")==0) topicreader = reader_wsj;
+  if (strcmp_lc(topicformat, "filelist_rf")==0) topicreader = reader_filelist_rf;
+  if (strcmp_lc(topicformat, "plagdet")==0) topicreader = reader_plagdet;
   FILE *fp = fopen(topicpath, "rb");
   FILE *fo = fopen(topicoutput, "wb");
-  
+
   if (!fp) {
     fprintf(stderr, "Failed to open topic file.\n");
     exit(1);
   }
-  
+
   Search *S = InitSearch();
-  
+
   topicreader(S, fp, fo);
-  
+
   FreeSearch(S);
   fclose(fp);
 }

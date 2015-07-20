@@ -4,12 +4,12 @@
 #include <sys/time.h>
 
 typedef struct {
-  struct timeval start_time;
-  struct timeval last_time;
-} timer;
+  struct timeval startTime;
+  struct timeval previousTime;
+} Timer;
 
-timer timer_start();
-double timer_tick(timer *t);
-double get_total_time(timer *t);
+Timer StartTimer();
+double TickTimer(Timer *t);
+double GetTotalTime(Timer *t);
 
 #endif /* TOPSIG_TIMER_H */
