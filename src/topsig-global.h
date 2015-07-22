@@ -5,7 +5,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
+
 inline static void strToLower(char *str)
 {
   // Convert str to lowercase
@@ -96,7 +98,7 @@ inline static char *trim(char *string)
     s_whitespace++;
   }
 
-  memmove(string, string+s_whitespace, len+1-s_whitespace);
+  memmove(string, string + s_whitespace, len + 1 - s_whitespace);
 
   len -= s_whitespace;
 

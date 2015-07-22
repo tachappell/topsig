@@ -105,9 +105,9 @@ static void addConfigParam(const char *var, const char *val)
   }
   
   
-  // Special case: if 'var' is config, load a new config file
+  // Special case: if "config", load a new config file
   if (strcmp(var, "config")==0) {
-    ConfigFromFile(val);
+    ConfigFromFile(val, 1);
     return;
   }
 
@@ -131,11 +131,14 @@ void OverrideConfigParam(const char *var, const char *val)
   addConfigParam(lcvar, val);
 }
 
-void ConfigFromFile(const char *configFile)
+void ConfigFromFile(const char *configFile, int errIfNotPresent)
 {
   FILE *fp = fopen(configFile, "r");
   if (fp == NULL) {
-    fprintf(stderr, "Config file %s not found\n", configFile);
+    if (errIfNotPresent) {
+      fprintf(stderr, "Config file %s not found\n", configFile);
+      exit(1);
+    }
     return;
   }
   char linebuf[16384];
@@ -178,33 +181,35 @@ void ConfigFromFile(const char *configFile)
 
 void ConfigCLI(int argc, const char **argv)
 {
-  // If a cmdline arg begins with -, it is a config variable
-  // Otherwise, it is a value.
   char currentArgument[16384] = "";
   char currentValue[16384] = "";
 
   for (int i = 2; i < argc; i++) {
-    if (argv[i][0] == '-') {
+    if (strlen(argv[i]) > 16383) {
+      fprintf(stderr, "Error: command-line argument is too long.\n");
+      exit(1);
+    }
+    if (currentArgument[0] == '\0') {
       // Config variable
-      strcpy(currentArgument, argv[i]+1);
-    } else {
-      // Value
-      if (currentArgument[0] != '\0') {
-        strcpy(currentValue, argv[i]);
-
-        trim(currentArgument);
-        trim(currentValue);
-
-        strToLower(currentArgument);
-
-        addConfigParam(currentArgument, currentValue);
-
-        currentValue[0] = '\0';
-        currentArgument[0] = '\0';
+      if (argv[i][0] == '-') {
+        strcpy(currentArgument, argv[i]+1);
       } else {
-        fprintf(stderr, "Error in passed argument: %s\n", argv[i]);
+        fprintf(stderr, "Error: command-line argument \"%s\" is not prefixed with a -\n", argv[i]);
         exit(1);
       }
+    } else {
+      // Value
+      strcpy(currentValue, argv[i]);
+
+      trim(currentArgument);
+      trim(currentValue);
+
+      strToLower(currentArgument);
+
+      addConfigParam(currentArgument, currentValue);
+
+      currentValue[0] = '\0';
+      currentArgument[0] = '\0';
     }
   }
 }
@@ -249,7 +254,7 @@ int GetBooleanConfig(const char *var, int def)
   if (strcmp_lc(c, "0")==0) return 0;
   if (strcmp_lc(c, "no")==0) return 0;
   
-  fprintf(stderr, "Error: configuration variable %s only accepts boolean values (\"true\" and \"false\")\n", var);
+  fprintf(stderr, "Error: configuration variable \"%s\" only accepts boolean values (\"true\" and \"false\")\n", var);
   exit(1);
   return def;
 }
@@ -263,8 +268,21 @@ int GetIntegerConfig(const char *var, int def)
   int v = strtol(c, &endPtr, 0);
   
   if (*endPtr != '\0') {
-    fprintf(stderr, "Error: configuration variable %s only accepts integer values\n", var);
+    fprintf(stderr, "Error: configuration variable \"%s\" only accepts integer values\n", var);
     exit(1);
   }
   return v;
+}
+
+void CheckConfigPresent(const char *var, const char *err)
+{
+  const char *c = Config(var);
+  if (c == NULL) {
+    if (err == NULL) {
+      fprintf(stderr, "Error: configuration variable \"%s\" has not been set\n", var);
+    } else {
+      fprintf(stderr, "%s\n", err);
+    }
+    exit(1);
+  }
 }

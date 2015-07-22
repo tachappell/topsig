@@ -27,7 +27,6 @@ void RunExperimentalRF()
   for (topic_num = 0;; topic_num++) { // Topics
     // Get the current topic
     fgets(topic, MAX_TOPIC_LENGTH + 1, stdin);
-    //scanf("%[^\n]\n", topic);
 
     // Strip off the final \n, if necessary
     int topic_len = strlen(topic);
@@ -42,19 +41,15 @@ void RunExperimentalRF()
     Results *R = SearchCollectionQuery(S, topic, NUM_RESULTS);
     for (int n = 0; n < NUM_RESULTS; n++) {
       const char *docId = GetResult(R, 0);
-      //fprintf(stderr, "result %d: [%s]\n", n+1, docid); fflush(stderr);
       printf("%s\n", docId);
       fflush(stdout);
-      //fprintf(stderr, "presented. removing\n"); fflush(stderr);
       RemoveResult(R, 0);
-      //fprintf(stderr, "done. awaiting feedback\n"); fflush(stderr);
 
       int feedback_lines;
       char nl;
 
 
       scanf("%d%c", &feedback_lines, &nl);
-      //fprintf(stderr, "received %d lines of feedback\n", feedback_lines); fflush(stderr);
 
       int i;
       sprintf(feedback, "%s", topic);

@@ -10,9 +10,12 @@ void RunQuery()
   
   Search *S = InitSearch();
   
+  int topK = GetIntegerConfig("K", 10);
+  int topKOutput = GetIntegerConfig("K-OUTPUT", topK);
+  
   for (int i = 0; i < 10; i++) {
-    Results *R = SearchCollectionQuery(S, Q, atoi(Config("QUERY-TOP-K")));
-    PrintResults(R, atoi(Config("QUERY-TOP-K-OUTPUT")));
+    Results *R = SearchCollectionQuery(S, Q, topK);
+    PrintResults(R, topKOutput);
     FreeResults(R);
   }
   

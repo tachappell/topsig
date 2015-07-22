@@ -3,54 +3,6 @@
 #include <assert.h>
 #include "topsig-thread.h"
 
-// NO_THREADING is an optional mode to disable the pthread dependency.
-// Naturally attempting to do a multithreaded run will fail if this is the case.
-
-#ifdef NO_THREADING
-
-void ProcessFile_Threaded(char *arg_filename, char *arg_filedat)
-{
-  fprintf(stderr, "Error: Threading disabled. Change INDEX-THREADING to single or compile in threading support.\n");
-  exit(1);
-}
-void Flush_Threaded() { SignatureFlush(); }
-void ThreadYield(){}
-
-Results *FindHighestScoring_Threaded(Search *S, const int start, const int count, const int topk, unsigned char *bsig, unsigned char *bmask)
-{
-  fprintf(stderr, "Error: Threading disabled. Change SEARCH-THREADING to single or compile in threading support.\n");
-  exit(1);
-  return NULL;
-}
-
-void DivideWork(void **job_inputs, void *(*start_routine)(void*), int jobs)
-{
-  fprintf(stderr, "Error: Threading disabled. Change SEARCH-THREADING to single or compile in threading support.\n");
-  exit(1);
-  return NULL;
-}
-
-struct {
-  void (*func)(void);
-} CallOnce_list[CALLONCE_BUFFER]; // will be init with {NULL}
-
-void CallOnce(void (*func)())
-{
-  for (int i = 0; i < CALLONCE_BUFFER; i++) {
-    if (CallOnce_list[i].func == func) {
-      return;
-    }
-    if (CallOnce_list[i].func == NULL) {
-      CallOnce_list[i].func = func;
-      func();
-      return;
-    }
-  }
-}
-
-#else
-#endif /* NO_THREADING */
-
 #include <string.h>
 #include <pthread.h>
 #include <sched.h>
@@ -124,10 +76,7 @@ void *start_work(void *sigcache_ptr)
     PostSemaphore(&sem_job_avail[currjob]);
   }
 
-  //printf("%d> __DONE__\n", my_tid);
-
   atomicFetchAndSub(&threads_running, 1);
-  //pthread_exit(NULL);
   return NULL;
 }
 
@@ -142,7 +91,7 @@ void ProcessFile_Threaded(Document *doc)
       InitSemaphore(&sem_job_avail[i], 0, 1);
     }
 
-    threadpool_size = atoi(Config("INDEX-THREADS"))+1;
+    threadpool_size = GetIntegerConfig("THREADS", 1)+1;
     threadpool = malloc(sizeof(pthread_t) * threadpool_size);
     threadcache = malloc(sizeof(SignatureCache *) * threadpool_size);
 
@@ -168,8 +117,6 @@ void ProcessFile_Threaded(Document *doc)
 
   atomicFetchAndAdd(&current_jobs, 1);
   PostSemaphore(&sem_jobs_ready);
-  //printf("Job %d ready.\n", currjob);
-
 }
 
 void Flush_Threaded()
@@ -410,7 +357,6 @@ void **TBPDivideWork(TBPHandle *H, void *job_input, void *(*start_routine)(void*
   atomicFetchAndAdd(&H->current_task, 1);
 
   while (!atomicCompareAndSwap(&H->jobs_complete, H->threads, 0)) {
-    //fprintf(stderr, "[%d %d]\n", H->jobs_complete, cmp);
     ThreadYield();
   }
 

@@ -21,11 +21,11 @@ int main(int argc, const char **argv)
   }
   
   InitConfigDeprecated();
-  ConfigFromFile("config.txt");
+  ConfigFromFile("config.txt", 0);
   ConfigCLI(argc, argv);
-
+  
   ConfigInit();
-
+  
   if (strcmp(argv[1], "index")==0 ||
       strcmp(argv[1], "query")==0 ||
       strcmp(argv[1], "topic")==0 ||
@@ -38,10 +38,9 @@ int main(int argc, const char **argv)
 
   // Experimental modes are not listed in the usage() function
   else if (strcmp(argv[1], "experimental-rf")==0) RunExperimentalRF();
-  else if (strcmp(argv[1], "createisl")==0) RunCreateISL();
-  else if (strcmp(argv[1], "docsim")==0) RunSearchISLTurbo();
+  else if (strcmp(argv[1], "createisl")==0) CreateISSLTable();
+  else if (strcmp(argv[1], "docsim")==0) SearchISSLTable();
   else if (strcmp(argv[1], "exhaustive-docsim")==0) RunExhaustiveDocsimSearch();
-  else if (strcmp(argv[1], "experimental-reranktop")==0) ExperimentalRerankTopFile();
   else if (strcmp(argv[1], "histogram")==0) RunHistogram();
 
   else usage();

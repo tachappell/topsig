@@ -15,8 +15,10 @@
 #include "uthash.h"
 
 #define BUFFER_SIZE (512 * 1024)
+#define MAX_WARC_HEADER_LINE 65536
+#define MAX_FIELDNAME 256
 
-static char current_archive_path[2048];
+static char currentArchivePath[2048];
 
 typedef struct {
   char from[256];
@@ -24,16 +26,24 @@ typedef struct {
   UT_hash_handle hh;
 } docid_mapping;
 
+typedef struct {
+  char WARC_Type[256];
+  char WARC_TREC_ID[256]; // TREC ID is only populated if WARC_Type is response
+  int Content_Length;
+} WarcHeader;
+
 docid_mapping *docid_mapping_list = NULL;
 docid_mapping *docid_mapping_hash = NULL;
 
 static char *DocumentID(char *path, char *data)
 {
   char *docId = NULL;
-  if (strcmp_lc(Config("DOCID-FORMAT"), "path")==0) {
+  const char *docIdFormat = GetOptionalConfig("DOCID-FORMAT", "path");
+  
+  if (strcmp_lc(docIdFormat, "path")==0) {
     docId = malloc(strlen(path)+1);
     strcpy(docId, path);
-  } else if (strcmp_lc(Config("DOCID-FORMAT"), "basename.ext")==0) {
+  } else if (strcmp_lc(docIdFormat, "basename.ext")==0) {
     char *p = strrchr(path, '/');
     if (p == NULL)
       p = path;
@@ -41,7 +51,7 @@ static char *DocumentID(char *path, char *data)
       p = p + 1;
     docId = malloc(strlen(p)+1);
     strcpy(docId, p);
-  } else if (strcmp_lc(Config("DOCID-FORMAT"), "basename")==0) {
+  } else if (strcmp_lc(docIdFormat, "basename")==0) {
     char *p = strrchr(path, '/');
     if (p == NULL)
       p = path;
@@ -51,7 +61,7 @@ static char *DocumentID(char *path, char *data)
     strcpy(docId, p);
     p = strrchr(docId, '.');
     if (p) *p = '\0';
-  } else if (strcmp_lc(Config("DOCID-FORMAT"), "xmlfield")==0) {
+  } else if (strcmp_lc(docIdFormat, "xmlfield")==0) {
     char *docid_field = Config("XML-DOCID-FIELD");
     if (!docid_field) {
       fprintf(stderr, "DOCID-FORMAT=xmlfield but XML-DOCID-FIELD unspecified\n");
@@ -82,9 +92,7 @@ static char *DocumentID(char *path, char *data)
   if (docid_mapping_hash) {
     docid_mapping *lookup;
     HASH_FIND_STR(docid_mapping_hash, docId, lookup);
-    //printf("Lookup %s...\n", docid);
     if (lookup) {
-      //printf("%s->%s\n", lookup->from, lookup->to);
       docId = realloc(docId, strlen(lookup->to)+1);
       strcpy(docId, lookup->to);
     }
@@ -144,9 +152,8 @@ static void indexfile(Document *doc)
 {
   static int thread_mode = -1;
   static SignatureCache *signaturecache = NULL;
-
   if (thread_mode == -1) {
-    if (Config("INDEX-THREADING") && strcmp(Config("INDEX-THREADING"), "multi")==0) {
+    if (GetIntegerConfig("THREADS", 1) > 1) {
       thread_mode = 1;
     } else {
       thread_mode = 0;
@@ -163,7 +170,7 @@ static void indexfile(Document *doc)
   }
 }
 
-static void AR_file(FileHandle *fp, void (*processfile)(Document *))
+static void AR_file(FileHandle *fp, void (*processFile)(Document *))
 {
   int filesize = 0;
   int buffersize = 1024;
@@ -183,12 +190,12 @@ static void AR_file(FileHandle *fp, void (*processfile)(Document *))
   filedat[filesize] = '\0';
   doc->data = filedat;
   doc->dataLength = filesize;
-  doc->docId = DocumentID(current_archive_path, filedat);
+  doc->docId = DocumentID(currentArchivePath, filedat);
 
-  processfile(doc);
+  processFile(doc);
 }
 
-static int warc_read_header_line(FileHandle *fp, char *buf, const size_t buflen) {
+static int warcReadHeader_line(FileHandle *fp, char *buf, const size_t buflen) {
   size_t bufpos = 0; // where to insert next char
   for (;;) {
     char c = -1;
@@ -211,16 +218,7 @@ static int warc_read_header_line(FileHandle *fp, char *buf, const size_t buflen)
   return 0; // not EOF
 }
 
-// only 3 fields are required from the WARC header
-typedef struct {
-  char WARC_Type[256];
-  char WARC_TREC_ID[256]; // TREC ID is only populated if WARC_Type is response
-  int Content_Length;
-} WarcHeader;
-
-#define MAX_WARC_HEADER_LINE 65536
-#define MAX_FIELDNAME 256
-static int warc_read_header(FileHandle *fp, WarcHeader *header) {
+static int warcReadHeader(FileHandle *fp, WarcHeader *header) {
   // initialize
   strcpy(header->WARC_Type, "");
   strcpy(header->WARC_TREC_ID, "");
@@ -229,7 +227,7 @@ static int warc_read_header(FileHandle *fp, WarcHeader *header) {
   for (;;) {
     // read a line
     char buf[MAX_WARC_HEADER_LINE] = "";
-    if (warc_read_header_line(fp, buf, MAX_WARC_HEADER_LINE)) {
+    if (warcReadHeader_line(fp, buf, MAX_WARC_HEADER_LINE)) {
       // reached EOF
       return 1;
     }
@@ -250,7 +248,6 @@ static int warc_read_header(FileHandle *fp, WarcHeader *header) {
       *dst++ = *src++;
     }
     *dst = '\0';
-    //printf("%s\n", fieldname);
 
     // parse field
     char *field = end_fieldname + 1; // skip the : separator
@@ -281,7 +278,7 @@ static int warc_read_header(FileHandle *fp, WarcHeader *header) {
   return 0;
 }
 
-static void warc_read_content(FileHandle *fp, char *data, const int Content_Length) {
+static void warcReadContent(FileHandle *fp, char *data, const int Content_Length) {
   // fill data byte reading Content_Length bytes
   int bytes_read = 0;
   while (bytes_read < Content_Length) {
@@ -306,7 +303,7 @@ static void AR_warc(FileHandle *fp, void (*processfile)(Document *)) {
   for (;;) {
     // read header
     WarcHeader header;
-    if (warc_read_header(fp, &header)) {
+    if (warcReadHeader(fp, &header)) {
       // reached EOF
       return;
     }
@@ -314,19 +311,12 @@ static void AR_warc(FileHandle *fp, void (*processfile)(Document *)) {
     // read content
     Document *newDoc = NewDocument(header.WARC_TREC_ID, NULL);
     newDoc->data = malloc(header.Content_Length + 1);
-    warc_read_content(fp, newDoc->data, header.Content_Length);
-
-    //printf("-->%s<--\n", newDoc->data);
-    if (strcmp("clueweb12-0110wb-19-32319", header.WARC_TREC_ID) == 0) {
-    printf("%s\n", header.WARC_TREC_ID);
-    printf("-->%s<--\n", newDoc->data);
-    }
+    warcReadContent(fp, newDoc->data, header.Content_Length);
 
     // warc has two trailing empty lines
     char buf[MAX_WARC_HEADER_LINE] = "";
     for (int i = 0; i < 2; i++ ) {
-      warc_read_header_line(fp, buf, MAX_WARC_HEADER_LINE);
-      //printf("-->%s<--\n", buf);
+      warcReadHeader_line(fp, buf, MAX_WARC_HEADER_LINE);
       if (strcmp(buf, "") != 0) {
         fprintf(stderr, "WARC format error - can not read 2 empty lines after content\n");
         exit(1);
@@ -335,7 +325,6 @@ static void AR_warc(FileHandle *fp, void (*processfile)(Document *)) {
 
     // process the document
     if (strcmp_lc(header.WARC_Type, "response") == 0) {
-      //printf("Index [%s]\n", newDoc->docid);
       processfile(newDoc);
     } else {
       FreeDocument(newDoc);
@@ -394,7 +383,6 @@ static void AR_wsj(FileHandle *fp,  void (*processfile)(Document *))
       if ((doc_end = strstr(buf, "</DOC>")) != NULL) {
         doc_end += 7;
         doclen = doc_end-buf;
-        //printf("Document found, %d bytes large\n", doclen);
 
         char *title_start = strstr(buf, "<DOCNO>");
         char *title_end = strstr(buf, "</DOCNO>");
@@ -572,7 +560,6 @@ static void AR_mediaeval(FileHandle *fp,  void (*processfile)(Document *))
         doc_start += strlen("<photo");
         doc_end += strlen("</photo>");
         doclen = doc_end-buf;
-        //printf("Document found, %d bytes large\n", doclen);
 
         char *title_start = strstr(buf, "id=\"");
         title_start += strlen("id=\"");
@@ -609,38 +596,42 @@ static void AR_mediaeval(FileHandle *fp,  void (*processfile)(Document *))
   }
 }
 
-static void (*getarchivereader(const char *targetformat))(FileHandle *, void (*)(Document *))
+static void (*getArchiveReader(const char *targetformat))(FileHandle *, void (*)(Document *))
 {
-  void (*archivereader)(FileHandle *, void (*)(Document *)) = NULL;
-  if (strcmp_lc(targetformat, "file")==0) archivereader = AR_file;
-  if (strcmp_lc(targetformat, "tar")==0) archivereader = AR_tar;
-  if (strcmp_lc(targetformat, "wsj")==0) archivereader = AR_wsj;
-  if (strcmp_lc(targetformat, "warc")==0) archivereader = AR_warc;
-  if (strcmp_lc(targetformat, "newline")==0) archivereader = AR_newline;
-  if (strcmp_lc(targetformat, "khresmoi")==0) archivereader = AR_khresmoi;
-  if (strcmp_lc(targetformat, "mediaeval")==0) archivereader = AR_mediaeval;
-  return archivereader;
+  void (*archiveReader)(FileHandle *, void (*)(Document *)) = NULL;
+  if (strcmp_lc(targetformat, "file")==0) archiveReader = AR_file;
+  if (strcmp_lc(targetformat, "tar")==0) archiveReader = AR_tar;
+  if (strcmp_lc(targetformat, "wsj")==0) archiveReader = AR_wsj;
+  if (strcmp_lc(targetformat, "warc")==0) archiveReader = AR_warc;
+  if (strcmp_lc(targetformat, "newline")==0) archiveReader = AR_newline;
+  if (strcmp_lc(targetformat, "khresmoi")==0) archiveReader = AR_khresmoi;
+  if (strcmp_lc(targetformat, "mediaeval")==0) archiveReader = AR_mediaeval;
+  return archiveReader;
 }
 
 void RunIndex()
 {
   char path[2048];
-  void (*archivereader)(FileHandle *, void (*)(Document *));
-  archivereader = getarchivereader(Config("TARGET-FORMAT"));
+  void (*archiveReader)(FileHandle *, void (*)(Document *));
+  archiveReader = getArchiveReader(GetOptionalConfig("TARGET-FORMAT", "file"));
 
-  if (archivereader == NULL) {
-    fprintf(stderr, "Invalid/unspecified TARGET-FORMAT\n");
+  if (archiveReader == NULL) {
+    fprintf(stderr, "Error: Invalid TARGET-FORMAT\n");
     exit(1);
   }
-
+  int indexedFiles = 0;
   while (getnextfile(path)) {
-    //printf("%s\n", path);
+    indexedFiles++;
     FileHandle *fp = OpenFile(path);
     if (fp) {
-      strcpy(current_archive_path, path);
-      archivereader(fp, indexfile);
+      strcpy(currentArchivePath, path);
+      archiveReader(fp, indexfile);
       CloseFile(fp);
     }
+  }
+  if (indexedFiles == 0) {
+    fprintf(stderr, "Error: no input files specified for indexing. Provide an input file or directory with -target-path (path)\n");
+    exit(1);
   }
   Flush_Threaded();
 }
@@ -653,20 +644,19 @@ static void addstats(Document *doc)
 void RunTermStats()
 {
   char path[2048];
-  void (*archivereader)(FileHandle *, void (*)(Document *));
-  archivereader = getarchivereader(Config("TARGET-FORMAT"));
+  void (*archiveReader)(FileHandle *, void (*)(Document *));
+  archiveReader = getArchiveReader(GetOptionalConfig("TARGET-FORMAT", "file"));
 
-  if (archivereader == NULL) {
+  if (archiveReader == NULL) {
     fprintf(stderr, "Invalid/unspecified TARGET-FORMAT\n");
     exit(1);
   }
 
   while (getnextfile(path)) {
-    //printf("%s\n", path);
     FileHandle *fp = OpenFile(path);
     if (fp) {
-      strcpy(current_archive_path, path);
-      archivereader(fp, addstats);
+      strcpy(currentArchivePath, path);
+      archiveReader(fp, addstats);
       CloseFile(fp);
     }
   }

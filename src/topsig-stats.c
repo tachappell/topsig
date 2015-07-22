@@ -6,24 +6,24 @@
 #include "topsig-stats.h"
 #include "superfasthash.h"
 
-int hash(const char *term)
-{
-  uint32_t h = SuperFastHash(term, strlen(term));
-  return (int)h;
-}
-
 typedef struct {
   int t; // 32-bit hash
   unsigned int freq_docs;
   unsigned int freq_terms;
   UT_hash_handle hh;
 } StatTerm;
-int totalTerms;
 
 static StatTerm *termtable = NULL;
 static StatTerm *termlist = NULL;
 int termlist_count = 0;
 int termlist_size = 0;
+int totalTerms;
+
+static int hash(const char *term)
+{
+  uint32_t h = SuperFastHash(term, strlen(term));
+  return (int)h;
+}
 
 int TermFrequencyStats(const char *term)
 {

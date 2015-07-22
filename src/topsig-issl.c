@@ -10,17 +10,7 @@
 #include "topsig-search.h"
 #include "topsig-thread.h"
 
-// Important configuration options:
-// ISL-PATH
-// SIGNATURE-PATH
-// ISL-MAX-DIST
-// ISL-MAX-DIST-NONEW
-// SEARCH-DOC-THREADS
-// SEARCH-DOC-FIRST
-// SEARCH-DOC-LAST
-// SEARCH-DOC-TOPK
-// SEARCH-DOC-RERANK
-
+// Starting size of the buffer used to hold the list of documents that were touched during the processing of the ISSL tables
 #define DEFAULT_HOTLIST_BUFFERSIZE 2048
 
 typedef struct {
@@ -31,19 +21,73 @@ typedef struct {
   int sig_record_size;
 } SignatureHeader;
 
+typedef struct {
+  int num_slices;
+  int compression;
+  int storage_mode;
+  int signature_count;
+  int avg_slicewidth;
+  int sig_width;
+} ISSLHeader;
+
+typedef struct {
+  unsigned short *score;
+  int *score_hotlist;
+  int score_hotlist_n;
+  int score_hotlist_sz;
+} ScoreTable;
+
+typedef struct {
+  int results;
+  int *issl_scores;
+  int *distances;
+  int *docids;
+  const char **docnames;
+} ResultList;
+
+typedef struct {
+  ResultList *list;
+  int i;
+} ClarifyEntry;
+
+typedef struct {
+  const SignatureHeader *sigCfg;
+  const ISSLHeader *isslCfg;
+
+  const unsigned char *sigFile;
+  int doc_begin;
+  int doc_end;
+  int * const *isslCounts;
+  int ** const *isslTable;
+
+  struct {
+    int *variants;
+    int nVariantsExpansion;
+    int nVariantsRadius;
+  } v;
+  
+  int top_k;
+  ResultList *output;
+} WorkerThroughput;
+
+typedef struct {
+  int threadid;
+  ScoreTable scores;
+} WorkerThroughputThread;
+
 static SignatureHeader readSigHeader(FILE *fp)
 {
   SignatureHeader cfg;
   char sig_method[64];
-  cfg.header_size = fileRead32(fp); // header_size
-  int version = fileRead32(fp); // version
-  cfg.max_name_len = fileRead32(fp); // max_name_len
-  cfg.sig_width = fileRead32(fp); // sig_width
-  fileRead32(fp); // sig_density
+  cfg.header_size = fileRead32(fp);
+  int version = fileRead32(fp);
+  cfg.max_name_len = fileRead32(fp);
+  cfg.sig_width = fileRead32(fp); 
+  fileRead32(fp); // Signature density
   if (version >= 2) {
-    fileRead32(fp); // sig_seed
+    fileRead32(fp); // Signature seed
   }
-  fread(sig_method, 1, 64, fp); // sig_method
+  fread(sig_method, 1, 64, fp);
 
   cfg.sig_offset = cfg.max_name_len + 1;
   cfg.sig_offset += 8 * 4; // 8 32-bit ints
@@ -52,14 +96,14 @@ static SignatureHeader readSigHeader(FILE *fp)
   return cfg;
 }
 
-static inline int slice_width(int sig_width, int slices, int slice_n)
+static inline int getSliceWidth(int sig_width, int slices, int slice_n)
 {
   int pos_start = sig_width * slice_n / slices;
   int pos_end = sig_width * (slice_n+1) / slices;
   return pos_end - pos_start;
 }
 
-static inline int get_slice_at(const unsigned char *sig, int pos, int sw)
+static inline int getSliceAt(const unsigned char *sig, int pos, int sw)
 {
   int r = 0;
   for (int bit_n = 0; bit_n < sw; bit_n++) {
@@ -69,16 +113,16 @@ static inline int get_slice_at(const unsigned char *sig, int pos, int sw)
   return r;
 }
 
-static int **Count_ISSL_List_Lengths(const SignatureHeader *cfg, FILE *fp, int num_slices, int *signature_count)
+static int **countListLengths(const SignatureHeader *cfg, FILE *fp, int num_slices, int *signature_count)
 {
   // Allocate memory for the list lengths
-  int **issl_counts = malloc(sizeof(int *) * num_slices);
+  int **isslCounts = malloc(sizeof(int *) * num_slices);
 
   for (int i = 0; i < num_slices; i++) {
-    int width = slice_width(cfg->sig_width, num_slices, i);
+    int width = getSliceWidth(cfg->sig_width, num_slices, i);
     int num_issl_lists = 1 << width;
-    issl_counts[i] = malloc(sizeof(int) * num_issl_lists);
-    memset(issl_counts[i], 0, sizeof(int) * num_issl_lists);
+    isslCounts[i] = malloc(sizeof(int) * num_issl_lists);
+    memset(isslCounts[i], 0, sizeof(int) * num_issl_lists);
   }
 
   // Rewind to just after the header
@@ -91,10 +135,10 @@ static int **Count_ISSL_List_Lengths(const SignatureHeader *cfg, FILE *fp, int n
   while (fread(sig_buf, cfg->sig_record_size, 1, fp) > 0) {
     int slice_pos = 0;
     for (int i = 0; i < num_slices; i++) {
-      int width = slice_width(cfg->sig_width, num_slices, i);
-      int val = get_slice_at(sig, slice_pos, width);
+      int width = getSliceWidth(cfg->sig_width, num_slices, i);
+      int val = getSliceAt(sig, slice_pos, width);
 
-      issl_counts[i][val]++;
+      isslCounts[i][val]++;
 
       slice_pos += width;
     }
@@ -104,21 +148,21 @@ static int **Count_ISSL_List_Lengths(const SignatureHeader *cfg, FILE *fp, int n
 
   *signature_count = sig_num;
 
-  return issl_counts;
+  return isslCounts;
 }
 
-static int ***Build_ISSL_Table(const SignatureHeader *cfg, FILE *fp, int num_slices, int **issl_counts)
+static int ***buildSliceTable(const SignatureHeader *cfg, FILE *fp, int num_slices, int **isslCounts)
 {
-  int ***issl_table = malloc(sizeof(int *) * num_slices);
+  int ***isslTable = malloc(sizeof(int *) * num_slices);
 
   size_t mem_required = 0;
   for (int i = 0; i < num_slices; i++) {
-    int width = slice_width(cfg->sig_width, num_slices, i);
+    int width = getSliceWidth(cfg->sig_width, num_slices, i);
     int num_issl_lists = 1 << width;
-    issl_table[i] = malloc(sizeof(int *) * num_issl_lists);
+    isslTable[i] = malloc(sizeof(int *) * num_issl_lists);
 
     for (int j = 0; j < num_issl_lists; j++) {
-      mem_required += sizeof(int) * issl_counts[i][j];
+      mem_required += sizeof(int) * isslCounts[i][j];
     }
   }
 
@@ -133,13 +177,13 @@ static int ***Build_ISSL_Table(const SignatureHeader *cfg, FILE *fp, int num_sli
   size_t linear_buffer_pos = 0;
 
   for (int i = 0; i < num_slices; i++) {
-    int width = slice_width(cfg->sig_width, num_slices, i);
+    int width = getSliceWidth(cfg->sig_width, num_slices, i);
     int num_issl_lists = 1 << width;
     for (int j = 0; j < num_issl_lists; j++) {
-      issl_table[i][j] = linear_buffer + linear_buffer_pos;
-      linear_buffer_pos += issl_counts[i][j];
+      isslTable[i][j] = linear_buffer + linear_buffer_pos;
+      linear_buffer_pos += isslCounts[i][j];
     }
-    memset(issl_counts[i], 0, sizeof(int) * num_issl_lists);
+    memset(isslCounts[i], 0, sizeof(int) * num_issl_lists);
   }
 
   // Rewind to just after the header
@@ -151,10 +195,10 @@ static int ***Build_ISSL_Table(const SignatureHeader *cfg, FILE *fp, int num_sli
   while (fread(sig_buf, cfg->sig_record_size, 1, fp) > 0) {
     int slice_pos = 0;
     for (int i = 0; i < num_slices; i++) {
-      int width = slice_width(cfg->sig_width, num_slices, i);
-      int val = get_slice_at(sig, slice_pos, width);
-      issl_table[i][val][issl_counts[i][val]] = sig_num;
-      issl_counts[i][val]++;
+      int width = getSliceWidth(cfg->sig_width, num_slices, i);
+      int val = getSliceAt(sig, slice_pos, width);
+      isslTable[i][val][isslCounts[i][val]] = sig_num;
+      isslCounts[i][val]++;
 
       slice_pos += width;
     }
@@ -162,15 +206,15 @@ static int ***Build_ISSL_Table(const SignatureHeader *cfg, FILE *fp, int num_sli
   }
   free(sig_buf);
 
-  return issl_table;
+  return isslTable;
 }
 
-void RunCreateISL()
+void CreateISSLTable()
 {
-  int avg_slice_width = 16;
+  int avg_slicewidth = 16;
   if (Config("ISL_SLICEWIDTH")) {
-    avg_slice_width = atoi(Config("ISL_SLICEWIDTH"));
-    if ((avg_slice_width <= 0) || (avg_slice_width >= 31)) {
+    avg_slicewidth = atoi(Config("ISL_SLICEWIDTH"));
+    if ((avg_slicewidth <= 0) || (avg_slicewidth >= 31)) {
       fprintf(stderr, "Error: slice widths outside of the range 1-30 are currently not supported.\n");
       exit(1);
     }
@@ -181,24 +225,24 @@ void RunCreateISL()
     fprintf(stderr, "Failed to open signature file.\n");
     exit(1);
   }
-  SignatureHeader sig_cfg = readSigHeader(fp);
+  SignatureHeader sigCfg = readSigHeader(fp);
 
   // Number of slices is calculated as ceil(signature width / ideal slice width)
-  int num_slices = (sig_cfg.sig_width + avg_slice_width - 1) / avg_slice_width;
+  int num_slices = (sigCfg.sig_width + avg_slicewidth - 1) / avg_slicewidth;
 
   int signature_count;
 
   Timer T = StartTimer();
-  int **issl_counts = Count_ISSL_List_Lengths(&sig_cfg, fp, num_slices, &signature_count);
+  int **isslCounts = countListLengths(&sigCfg, fp, num_slices, &signature_count);
 
   fprintf(stderr, "ISSL table generation: first pass - %.2fms\n", TickTimer(&T));
-  int ***issl_table = Build_ISSL_Table(&sig_cfg, fp, num_slices, issl_counts);
+  int ***isslTable = buildSliceTable(&sigCfg, fp, num_slices, isslCounts);
   fprintf(stderr, "ISSL table generation: second pass - %.2fms\n", TickTimer(&T));
   fclose(fp);
 
   // Write out ISSL table
 
-  FILE *fo = fopen(Config("ISL-PATH"), "wb");
+  FILE *fo = fopen(Config("ISSL-PATH"), "wb");
   if (!fo) {
     fprintf(stderr, "Failed to write out ISSL table\n");
     exit(1);
@@ -209,21 +253,21 @@ void RunCreateISL()
   fileWrite32(0, fo); // compression
   fileWrite32(2, fo); // storage mode
   fileWrite32(signature_count, fo); // signatures
-  fileWrite32(avg_slice_width, fo); // average slice width
-  fileWrite32(sig_cfg.sig_width, fo); // signature width
+  fileWrite32(avg_slicewidth, fo); // average slice width
+  fileWrite32(sigCfg.sig_width, fo); // signature width
 
   for (int slice = 0; slice < num_slices; slice++) {
-    int width = slice_width(sig_cfg.sig_width, num_slices, slice);
+    int width = getSliceWidth(sigCfg.sig_width, num_slices, slice);
     int num_issl_lists = 1 << width;
 
-    fwrite(issl_counts[slice], sizeof(int), num_issl_lists, fo);
+    fwrite(isslCounts[slice], sizeof(int), num_issl_lists, fo);
   }
   for (int slice = 0; slice < num_slices; slice++) {
-    int width = slice_width(sig_cfg.sig_width, num_slices, slice);
+    int width = getSliceWidth(sigCfg.sig_width, num_slices, slice);
     int num_issl_lists = 1 << width;
 
     for (int val = 0; val < num_issl_lists; val++) {
-      fwrite(issl_table[slice][val], sizeof(int), issl_counts[slice][val], fo);
+      fwrite(isslTable[slice][val], sizeof(int), isslCounts[slice][val], fo);
     }
   }
 
@@ -232,20 +276,11 @@ void RunCreateISL()
   fprintf(stderr, "ISSL table generation: writing - %.2fms\n", TickTimer(&T));
   fprintf(stderr, "ISSL table generation: total time - %.2fms\n", GetTotalTime(&T));
 
-  free(issl_counts);
-  free(issl_table);
+  free(isslCounts);
+  free(isslTable);
 }
 
-typedef struct {
-  int num_slices;
-  int compression;
-  int storage_mode;
-  int signature_count;
-  int avg_slice_width;
-  int sig_width;
-} ISSLHeader;
-
-static ISSLHeader Read_ISSL_Table(const char *path, int ***issl_counts_out, int ****issl_table_out)
+static ISSLHeader readSliceTable(const char *path, int ***isslCounts_out, int ****isslTable_out)
 {
   FILE *fp = fopen(path, "rb");
   if (!fp) {
@@ -267,68 +302,67 @@ static ISSLHeader Read_ISSL_Table(const char *path, int ***issl_counts_out, int 
     exit(1);
   }
   cfg.signature_count = fileRead32(fp);
-  cfg.avg_slice_width = fileRead32(fp);
+  cfg.avg_slicewidth = fileRead32(fp);
   cfg.sig_width = fileRead32(fp);
 
   // Allocate initial structure
-  int **issl_counts = malloc(sizeof(int *) * cfg.num_slices);
-  int ***issl_table = malloc(sizeof(int *) * cfg.num_slices);
+  int **isslCounts = malloc(sizeof(int *) * cfg.num_slices);
+  int ***isslTable = malloc(sizeof(int *) * cfg.num_slices);
 
   // Load table
-  size_t issl_counts_sz = 0;
+  size_t isslCounts_sz = 0;
   for (int slice = 0; slice < cfg.num_slices; slice++) {
-    int width = slice_width(cfg.sig_width, cfg.num_slices, slice);
+    int width = getSliceWidth(cfg.sig_width, cfg.num_slices, slice);
     int num_issl_lists = 1 << width;
-    issl_table[slice] = malloc(sizeof(int *) * num_issl_lists);
+    isslTable[slice] = malloc(sizeof(int *) * num_issl_lists);
 
-    issl_counts_sz += sizeof(int) * num_issl_lists;
+    isslCounts_sz += sizeof(int) * num_issl_lists;
   }
-  int *issl_counts_buffer = malloc(issl_counts_sz);
-  if (!issl_counts_buffer) {
-    double mb = (double)issl_counts_sz / 1048576.0;
+  int *isslCounts_buffer = malloc(isslCounts_sz);
+  if (!isslCounts_buffer) {
+    double mb = (double)isslCounts_sz / 1048576.0;
     fprintf(stderr, "Error: unable to allocate memory for ISSL counts array (%.2f MB)\n", mb);
     exit(1);
   }
-  size_t issl_counts_pos = 0;
+  size_t isslCounts_pos = 0;
 
-  size_t issl_table_sz = 0;
+  size_t isslTable_sz = 0;
   for (int slice = 0; slice < cfg.num_slices; slice++) {
-    int width = slice_width(cfg.sig_width, cfg.num_slices, slice);
+    int width = getSliceWidth(cfg.sig_width, cfg.num_slices, slice);
     int num_issl_lists = 1 << width;
 
-    issl_counts[slice] = issl_counts_buffer + issl_counts_pos;
+    isslCounts[slice] = isslCounts_buffer + isslCounts_pos;
 
-    fread(issl_counts[slice], sizeof(int), num_issl_lists, fp);
+    fread(isslCounts[slice], sizeof(int), num_issl_lists, fp);
 
     for (int val = 0; val < num_issl_lists; val++) {
-      //fprintf(stderr, "--- %d %d\n", (int)sizeof(int), issl_counts[slice][val]);
-      issl_table_sz += sizeof(int) * issl_counts[slice][val];
+      isslTable_sz += sizeof(int) * isslCounts[slice][val];
     }
 
-    issl_counts_pos += num_issl_lists;
+    isslCounts_pos += num_issl_lists;
   }
 
-  int *issl_table_buffer = malloc(issl_table_sz);
-  if (!issl_table_buffer) {
-    double mb = (double)issl_table_sz / 1048576.0;
+  int *isslTable_buffer = malloc(isslTable_sz);
+  if (!isslTable_buffer) {
+    double mb = (double)isslTable_sz / 1048576.0;
     fprintf(stderr, "Error: unable to allocate memory for ISSL table (%.2f MB)\n", mb);
     exit(1);
   }
-  size_t issl_table_pos = 0;
+  size_t isslTable_pos = 0;
   for (int slice = 0; slice < cfg.num_slices; slice++) {
-    int width = slice_width(cfg.sig_width, cfg.num_slices, slice);
+    int width = getSliceWidth(cfg.sig_width, cfg.num_slices, slice);
     int num_issl_lists = 1 << width;
 
     for (int val = 0; val < num_issl_lists; val++) {
-      issl_table[slice][val] = issl_table_buffer + issl_table_pos;
-      fread(issl_table[slice][val], sizeof(int), issl_counts[slice][val], fp);
-      issl_table_pos += issl_counts[slice][val];
+      isslTable[slice][val] = isslTable_buffer + isslTable_pos;
+      fread(isslTable[slice][val], sizeof(int), isslCounts[slice][val], fp);
+      isslTable_pos += isslCounts[slice][val];
     }
   }
   fclose(fp);
 
-  *issl_counts_out = issl_counts;
-  *issl_table_out = issl_table;
+  *isslCounts_out = isslCounts;
+  *isslTable_out = isslTable;
 
   return cfg;
 }
@@ -355,14 +389,7 @@ static SignatureHeader readSigFile(const char *path, unsigned char **buf, int si
   return cfg;
 }
 
-typedef struct {
-  unsigned short *score;
-  int *score_hotlist;
-  int score_hotlist_n;
-  int score_hotlist_sz;
-} ScoreTable;
-
-static ScoreTable Create_Score_Table(int signatures)
+static ScoreTable createScoreTable(int signatures)
 {
   ScoreTable S;
   S.score = malloc(sizeof(unsigned short) * signatures);
@@ -372,7 +399,7 @@ static ScoreTable Create_Score_Table(int signatures)
   S.score_hotlist_n = 0;
   return S;
 }
-static void Destroy_Score_Table(ScoreTable *S)
+static void destroyScoreTable(ScoreTable *S)
 {
   free(S->score);
   S->score = NULL;
@@ -380,14 +407,6 @@ static void Destroy_Score_Table(ScoreTable *S)
   S->score_hotlist = NULL;
   S->score_hotlist_n = 0;
 }
-
-typedef struct {
-  int results;
-  int *issl_scores;
-  int *distances;
-  int *docids;
-  const char **docnames;
-} ResultList;
 
 static ResultList createResultList(int k)
 {
@@ -414,23 +433,20 @@ static void destroyResultList(ResultList *R)
   free(R->docnames);
 }
 
-static void Output_Results(int topic_id, const ResultList *list, int top_k)
+static void writeResults(int topic_id, const ResultList *list, int top_k)
 {
   if (list->results < top_k) top_k = list->results;
   for (int i = 0; i < top_k; i++) {
-    //printf("%d. %d (%d) - %s\n", i, list->docids[i], list->distances[i], list->docnames[i]);
     printf("%d Q0 %s %d %d Topsig-ISSL %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i]);
   }
 }
 
-ResultList Summarise(ScoreTable **scts, int scts_n, int top_k)
+static ResultList summarise(ScoreTable **scts, int scts_n, int top_k)
 {
   int R_lowest_score = 0;
   int R_lowest_score_i = 0;
 
   if (scts[0]->score_hotlist_n < top_k) {
-    //fprintf(stderr, "%d Error: not enough entries in hotlist (%d) to make up topk (%d). Reduce topk and try again.\n", threadid, scts[0]->score_hotlist_n, top_k);
-    //exit(1);
     top_k = scts[0]->score_hotlist_n;
   }
 
@@ -463,11 +479,6 @@ ResultList Summarise(ScoreTable **scts, int scts_n, int top_k)
   return R;
 }
 
-typedef struct {
-  ResultList *list;
-  int i;
-} ClarifyEntry;
-
 static int compareResultLists(const void *A, const void *B)
 {
   const ClarifyEntry *a = A;
@@ -479,7 +490,7 @@ static int compareResultLists(const void *A, const void *B)
 }
 
 
-static void ISSLPseudo(const SignatureHeader *cfg, ResultList *list, const unsigned char *sig_file, unsigned char *sig_out, int sample)
+static void applyPseudoFeedback(const SignatureHeader *cfg, ResultList *list, const unsigned char *sigFile, unsigned char *sig_out, int sample)
 {
     double dsig[cfg->sig_width];
     memset(&dsig, 0, cfg->sig_width * sizeof(double));
@@ -487,7 +498,7 @@ static void ISSLPseudo(const SignatureHeader *cfg, ResultList *list, const unsig
 
     for (int i = 0; i < sample; i++) {
         double di = i;
-        const unsigned char *cursig = sig_file + (size_t)cfg->sig_record_size * list->docids[i] + cfg->sig_offset;
+        const unsigned char *cursig = sigFile + (size_t)cfg->sig_record_size * list->docids[i] + cfg->sig_offset;
         for (int j = 0; j < cfg->sig_width; j++) {
             dsig[j] += exp(-di*di/sample_2) * ((cursig[j/8] & (1 << (7 - (j%8))))>0?1.0:-1.0);
         }
@@ -496,7 +507,6 @@ static void ISSLPseudo(const SignatureHeader *cfg, ResultList *list, const unsig
     Signature *sig = NewSignature("pseudo-query");
     SignatureFillDoubles(sig, dsig);
 
-    //unsigned char bsig[cfg->sig_width / 8];
     unsigned char bmask[cfg->sig_width / 8];
 
     FlattenSignature(sig, sig_out, bmask);
@@ -504,7 +514,7 @@ static void ISSLPseudo(const SignatureHeader *cfg, ResultList *list, const unsig
     SignatureDestroy(sig);
 }
 
-static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const unsigned char *sig_file, const unsigned char *sig, int top_k)
+static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const unsigned char *sigFile, const unsigned char *sig, int top_k)
 {
   if (top_k == -1) top_k = list->results;
   if (top_k > list->results) top_k = list->results;
@@ -514,14 +524,12 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
     memset(mask, 0xFF, cfg->sig_width / 8);
   }
 
-  //list->docnames = malloc(sizeof(char *) * list->results);
-
   ClarifyEntry *clarify = malloc(sizeof(ClarifyEntry) * top_k);
 
   for (int i = 0; i < top_k; i++) {
-    const unsigned char *cursig = sig_file + ((size_t)cfg->sig_record_size * list->docids[i] + cfg->sig_offset);
+    const unsigned char *cursig = sigFile + ((size_t)cfg->sig_record_size * list->docids[i] + cfg->sig_offset);
     list->distances[i] = DocumentDistance(cfg->sig_width, sig, mask, cursig);
-    list->docnames[i] = (const char *)(sig_file + ((size_t)cfg->sig_record_size * list->docids[i]));
+    list->docnames[i] = (const char *)(sigFile + ((size_t)cfg->sig_record_size * list->docids[i]));
 
     clarify[i].list = list;
     clarify[i].i = i;
@@ -529,7 +537,7 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
   qsort(clarify, top_k, sizeof(ClarifyEntry), compareResultLists);
 
   ResultList newlist = createResultList(list->results);
-  //newlist.docnames = malloc(sizeof(char *) * list->results);
+
   for (int i = 0; i < list->results; i++) {
     int j;
     if (i < top_k) {
@@ -549,18 +557,18 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
   free(clarify);
 }
 
-static inline int count_bits(unsigned int v) {
+static inline int countBits(unsigned int v) {
   v = v - ((v >> 1) & 0x55555555);
   v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
   return (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
 }
 
-static void Traverse_ISSL(const int *count, int * const *issl, ScoreTable *scores, const int *variants, int n_variants_ceasenew, int n_variants, int val, int slice_width)
+static void traverseSliceTable(const int *count, int * const *issl, ScoreTable *scores, const int *variants, int nVariantsRadius, int nVariants, int val, int getSliceWidth)
 {
-  int limit = 1 << slice_width;
-  for (int variant = 0; variant < n_variants; variant++) {
-    if (variant >= n_variants_ceasenew) break;
-    int score = slice_width - count_bits(variants[variant]);
+  int limit = 1 << getSliceWidth;
+  for (int variant = 0; variant < nVariants; variant++) {
+    if (variant >= nVariantsRadius) break;
+    int score = getSliceWidth - countBits(variants[variant]);
     int value = val ^ variants[variant];
     if (value >= limit) continue;
     for (int i = 0; i < count[value]; i++) {
@@ -577,89 +585,64 @@ static void Traverse_ISSL(const int *count, int * const *issl, ScoreTable *score
   }
 }
 
-static int bitcount_compar(const void *A, const void *B)
+static int compareHammingDistance(const void *A, const void *B)
 {
   const int *a = A;
   const int *b = B;
 
-  return count_bits(*a) - count_bits(*b);
+  return countBits(*a) - countBits(*b);
 }
 
-static inline int variants_threshold(const int *variants, int n_variants, int threshold)
+static inline int getVariantsThreshold(const int *variants, int nVariants, int threshold)
 {
-  for (int i = 0; i < n_variants; i++) {
-    if (count_bits(variants[i]) > threshold) {
+  for (int i = 0; i < nVariants; i++) {
+    if (countBits(variants[i]) > threshold) {
       return i;
     }
   }
-  return n_variants;
+  return nVariants;
 }
 
-typedef struct {
-  const SignatureHeader *sig_cfg;
-  const ISSLHeader *issl_cfg;
-
-  const unsigned char *sig_file;
-  int doc_begin;
-  int doc_end;
-  int * const *issl_counts;
-  int ** const *issl_table;
-  //ScoreTable scores;
-  struct {
-    int *variants;
-    int n_variants_stopearly;
-    int n_variants_ceasenew;
-  } v;
-  int top_k;
-  ResultList *output;
-} WorkerThroughput;
-
-typedef struct {
-  int threadid;
-  ScoreTable scores;
-} Worker_Throughput_perthread;
-
-static void *Throughput_Job(void *input, void *thread_data)
+static void *runThreadedSearch(void *input, void *thread_data)
 {
   WorkerThroughput *T = input;
-  Worker_Throughput_perthread *TP = thread_data;
+  WorkerThroughputThread *TP = thread_data;
 
   int doc_count = T->doc_end - T->doc_begin;
 
-  const SignatureHeader *sig_cfg = T->sig_cfg;
-  const ISSLHeader *issl_cfg = T->issl_cfg;
-  const unsigned char *sig_file = T->sig_file;
-  int * const *issl_counts = T->issl_counts;
-  int ** const *issl_table = T->issl_table;
+  const SignatureHeader *sigCfg = T->sigCfg;
+  const ISSLHeader *isslCfg = T->isslCfg;
+  const unsigned char *sigFile = T->sigFile;
+  int * const *isslCounts = T->isslCounts;
+  int ** const *isslTable = T->isslTable;
   int *variants = T->v.variants;
-  int n_variants_stopearly = T->v.n_variants_stopearly;
-  int n_variants_ceasenew = T->v.n_variants_ceasenew;
+  int nVariantsExpansion = T->v.nVariantsExpansion;
+  int nVariantsRadius = T->v.nVariantsRadius;
   T->output = malloc(sizeof(ResultList) * doc_count);
   int top_k = T->top_k;
-  unsigned char *pseudo_sig = malloc(sig_cfg->sig_record_size);
+  unsigned char *pseudo_sig = malloc(sigCfg->sig_record_size);
 
   ScoreTable *scores = &TP->scores;
 
   int doc_i = 0;
   for (int doc_cmp = T->doc_begin; doc_cmp < T->doc_end; doc_cmp++) {
-    const unsigned char *sig = sig_file + (size_t)sig_cfg->sig_record_size * doc_cmp + sig_cfg->sig_offset;
+    const unsigned char *sig = sigFile + (size_t)sigCfg->sig_record_size * doc_cmp + sigCfg->sig_offset;
     int slice_pos = 0;
-    for (int slice = 0; slice < issl_cfg->num_slices; slice++) {
-      int width = slice_width(issl_cfg->sig_width, issl_cfg->num_slices, slice);
-      int val = get_slice_at(sig, slice_pos, width);
-      //fprintf(stderr, "Slice %d val %d (@%d,%d)\n", slice, val, slice_pos, width);
-      Traverse_ISSL(issl_counts[slice], issl_table[slice], scores, variants, n_variants_ceasenew, n_variants_stopearly, val, width);
+    for (int slice = 0; slice < isslCfg->num_slices; slice++) {
+      int width = getSliceWidth(isslCfg->sig_width, isslCfg->num_slices, slice);
+      int val = getSliceAt(sig, slice_pos, width);
+
+      traverseSliceTable(isslCounts[slice], isslTable[slice], scores, variants, nVariantsRadius, nVariantsExpansion, val, width);
       slice_pos += width;
-      //fprintf(stderr, "Score of cmp: %d\n", scores.score[doc_cmp]);
 
     }
 
     ScoreTable *sct[1] = {scores};
-    T->output[doc_i] = Summarise(sct, 1, top_k);
-    clarifyResults(sig_cfg, &T->output[doc_i], sig_file, sig, -1);
+    T->output[doc_i] = summarise(sct, 1, top_k);
+    clarifyResults(sigCfg, &T->output[doc_i], sigFile, sig, -1);
     if (0) {
-      ISSLPseudo(sig_cfg, &T->output[doc_i], sig_file, pseudo_sig, 3);
-      clarifyResults(sig_cfg, &T->output[doc_i], sig_file, pseudo_sig, 10);
+      applyPseudoFeedback(sigCfg, &T->output[doc_i], sigFile, pseudo_sig, 3);
+      clarifyResults(sigCfg, &T->output[doc_i], sigFile, pseudo_sig, 10);
     }
     doc_i++;
   }
@@ -667,53 +650,55 @@ static void *Throughput_Job(void *input, void *thread_data)
   return NULL;
 }
 
-void RunSearchISLTurbo()
+void SearchISSLTable()
 {
-  int **issl_counts;
-  int ***issl_table;
+  int **isslCounts;
+  int ***isslTable;
 
-  ISSLHeader issl_cfg = Read_ISSL_Table(Config("ISL-PATH"), &issl_counts, &issl_table);
-  unsigned char *sig_file;
-  SignatureHeader sig_cfg = readSigFile(Config("SIGNATURE-PATH"), &sig_file, issl_cfg.signature_count);
+  ISSLHeader isslCfg = readSliceTable(Config("ISSL-PATH"), &isslCounts, &isslTable);
+  unsigned char *sigFile;
+  SignatureHeader sigCfg = readSigFile(Config("SIGNATURE-PATH"), &sigFile, isslCfg.signature_count);
 
-  int n_variants = 1 << issl_cfg.avg_slice_width;
-  int *variants = malloc(sizeof(int) * n_variants);
-  for (int i = 0; i < n_variants; i++) {
+  int nVariants = 1 << isslCfg.avg_slicewidth;
+  int *variants = malloc(sizeof(int) * nVariants);
+  for (int i = 0; i < nVariants; i++) {
     variants[i] = i;
   }
-  qsort(variants, n_variants, sizeof(int), bitcount_compar);
+  qsort(variants, nVariants, sizeof(int), compareHammingDistance);
 
-  int stop_early = GetIntegerConfig("ISSL-EXPANSION", 3);
-  int cease_new = GetIntegerConfig("ISSL-CONSIDERATION-RADIUS", 1);
+  int maxExpansionDistance = GetIntegerConfig("ISSL-EXPANSION", 3);
+  int maxConsiderationRadius = GetIntegerConfig("ISSL-CONSIDERATION-RADIUS", 1);
 
-  int n_variants_stopearly = variants_threshold(variants, n_variants, stop_early);
-  int n_variants_ceasenew = variants_threshold(variants, n_variants, cease_new);
+  int nVariantsExpansion = getVariantsThreshold(variants, nVariants, maxExpansionDistance);
+  int nVariantsRadius = getVariantsThreshold(variants, nVariants, maxConsiderationRadius);
 
-  //fprintf(stderr, "n_variants_stopearly %d\n", n_variants_stopearly);
-  //fprintf(stderr, "n_variants_ceasenew %d\n", n_variants_ceasenew);
+  int threadCount = GetIntegerConfig("THREADS", 1);
+  
+  if (threadCount < 0) {
+    fprintf(stderr, "ERROR: THREADS value (%d) out of range.\n", threadCount);
+    exit(1);
+  }
 
-  int thread_count = GetIntegerConfig("THREADS", 1);
-
-  int job_count = GetIntegerConfig("JOBS", 0);
+  int jobCount = GetIntegerConfig("JOBS", 0);
   
   // Default of 16 jobs per thread if there are multiple threads.
-  if (!jobs) {
-    if (thread_count != 1) {
-      jobs = jobs * 16;
+  if (jobCount < 0) {
+    if (threadCount != 1) {
+      jobCount = threadCount * 16;
     } else {
-      jobs = 1;
+      jobCount = 1;
     }
   }
 
   int search_doc_first = GetIntegerConfig("SEARCH-DOC-FIRST", 0);
-  int search_doc_last = GetIntegerConfig("SEARCH-DOC-LAST", issl_cfg.signature_count - 1);
+  int search_doc_last = GetIntegerConfig("SEARCH-DOC-LAST", isslCfg.signature_count - 1);
 
   if (search_doc_first < 0) {
     fprintf(stderr, "ERROR: SEARCH_DOC_FIRST value (%d) out of range.\n", search_doc_first);
     exit(1);
   }
-  if (search_doc_last >= issl_cfg.signature_count) {
-    fprintf(stderr, "ERROR: SEARCH_DOC_LAST value (%d) out of range (%d).\n", search_doc_last, issl_cfg.signature_count);
+  if (search_doc_last >= isslCfg.signature_count) {
+    fprintf(stderr, "ERROR: SEARCH_DOC_LAST value (%d) out of range (%d).\n", search_doc_last, isslCfg.signature_count);
     exit(1);
   }
   if (search_doc_last < search_doc_first) {
@@ -728,58 +713,51 @@ void RunSearchISLTurbo()
 
   int total_docs = search_doc_last - search_doc_first + 1;
 
-  void **jobdata = malloc(sizeof(void *) * job_count);
-  void **threaddata = malloc(sizeof(void *) * thread_count);
-  for (int i = 0; i < job_count; i++) {
-    WorkerThroughput *per_job_data = malloc(sizeof(WorkerThroughput));
-    per_job_data->sig_cfg = &sig_cfg;
-    per_job_data->issl_cfg = &issl_cfg;
-    per_job_data->sig_file = sig_file;
-    per_job_data->doc_begin = total_docs * i / job_count + search_doc_first;
-    per_job_data->doc_end = total_docs * (i+1) / job_count + search_doc_first;
-    per_job_data->issl_counts = issl_counts;
-    per_job_data->issl_table = issl_table;
-    per_job_data->v.variants = variants;
-    per_job_data->v.n_variants_stopearly = n_variants_stopearly;
-    per_job_data->v.n_variants_ceasenew = n_variants_ceasenew;
-    //per_job_data->scores = Create_Score_Table(issl_cfg.signature_count);
-    per_job_data->top_k = top_k_rerank;
-    jobdata[i] = per_job_data;
+  void **jobdata = malloc(sizeof(void *) * jobCount);
+  void **threaddata = malloc(sizeof(void *) * threadCount);
+  for (int i = 0; i < jobCount; i++) {
+    WorkerThroughput *perJobData = malloc(sizeof(WorkerThroughput));
+    perJobData->sigCfg = &sigCfg;
+    perJobData->isslCfg = &isslCfg;
+    perJobData->sigFile = sigFile;
+    perJobData->doc_begin = total_docs * i / jobCount + search_doc_first;
+    perJobData->doc_end = total_docs * (i+1) / jobCount + search_doc_first;
+    perJobData->isslCounts = isslCounts;
+    perJobData->isslTable = isslTable;
+    perJobData->v.variants = variants;
+    perJobData->v.nVariantsExpansion = nVariantsExpansion;
+    perJobData->v.nVariantsRadius = nVariantsRadius;
+    perJobData->top_k = top_k_rerank;
+    jobdata[i] = perJobData;
   }
-  for (int i = 0; i < thread_count; i++) {
-    Worker_Throughput_perthread *per_thread_data = malloc(sizeof(WorkerThroughput));
-    per_thread_data->scores = Create_Score_Table(issl_cfg.signature_count);
+  for (int i = 0; i < threadCount; i++) {
+    WorkerThroughputThread *per_thread_data = malloc(sizeof(WorkerThroughput));
+    per_thread_data->scores = createScoreTable(isslCfg.signature_count);
     per_thread_data->threadid = i;
     threaddata[i] = per_thread_data;
   }
 
   Timer T = StartTimer();
 
-  //DivideWork(threads, Throughput_Job, thread_count);
-  DivideWorkTP(jobdata, threaddata, Throughput_Job, job_count, thread_count);
+  DivideWorkTP(jobdata, threaddata, runThreadedSearch, jobCount, threadCount);
 
-  for (int i = 0; i < job_count; i++) {
+  for (int i = 0; i < jobCount; i++) {
     WorkerThroughput *thread_data = jobdata[i];
     int doc_count = thread_data->doc_end - thread_data->doc_begin;
     for (int j = 0; j < doc_count; j++) {
-      Output_Results(thread_data->doc_begin + j, &thread_data->output[j], top_k_present);
+      writeResults(thread_data->doc_begin + j, &thread_data->output[j], top_k_present);
     }
   }
 
-  fprintf(stderr, "search time %.2fms\n", TickTimer(&T));
+  fprintf(stderr, "Search time: %.2fms\n", TickTimer(&T));
 
-  for (int i = 0; i < job_count; i++) {
+  for (int i = 0; i < jobCount; i++) {
     free(jobdata[i]);
   }
-  for (int i = 0; i < thread_count; i++) {
-    Destroy_Score_Table(&((Worker_Throughput_perthread *)threaddata[i])->scores);
+  for (int i = 0; i < threadCount; i++) {
+    destroyScoreTable(&((WorkerThroughputThread *)threaddata[i])->scores);
     free(threaddata[i]);
   }
   free(jobdata);
   free(threaddata);
-}
-
-void ExperimentalRerankTopFile()
-{
-  fprintf(stderr, "Unimplemented.\n");
 }

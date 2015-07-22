@@ -19,6 +19,47 @@ typedef struct {
   int num_signatures;
 } SignatureHeader;
 
+typedef struct {
+  int results;
+  int *issl_scores;
+  int *distances;
+  int *docIds;
+  const char **docnames;
+} ResultList;
+
+typedef struct {
+  ResultList *list;
+  int i;
+} ClarifyEntry;
+
+
+typedef struct {
+  const SignatureHeader *sig_cfg;
+  const unsigned char *sig_file;
+  int doc_begin;
+  int doc_end;
+  ResultList *output;
+} WorkerThroughput;
+
+typedef struct {
+  char fname[128];
+  int hd;
+  int topic;
+
+  UT_hash_handle hh;
+} ResultHash;
+
+typedef struct {
+  char docId[128];
+  UT_hash_handle hh;
+} CategorisedDoc;
+
+typedef struct {
+  char catname[256];
+  CategorisedDoc *dochash;
+  UT_hash_handle hh;
+} Category;
+
 static SignatureHeader readSigHeader(FILE *fp)
 {
   SignatureHeader cfg;
@@ -75,14 +116,6 @@ static SignatureHeader readSigFile(const char *path, unsigned char **buf)
   return cfg;
 }
 
-typedef struct {
-  int results;
-  int *issl_scores;
-  int *distances;
-  int *docIds;
-  const char **docnames;
-} ResultList;
-
 static ResultList createResultList(int k)
 {
   ResultList R;
@@ -108,12 +141,6 @@ static void destroyResultList(ResultList *R)
   free(R->docnames);
 }
 
-
-typedef struct {
-  ResultList *list;
-  int i;
-} ClarifyEntry;
-
 static int compareResultLists(const void *A, const void *B)
 {
   const ClarifyEntry *a = A;
@@ -132,12 +159,9 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
     memset(mask, 0xFF, cfg->sig_width / 8);
   }
 
-  //list->docnames = malloc(sizeof(char *) * list->results);
-
   ClarifyEntry *clarify = malloc(sizeof(ClarifyEntry) * list->results);
 
   for (int i = 0; i < list->results; i++) {
-//    list->distances[i] = DocumentDistance(cfg->sig_width, sig, mask, cursig);
     list->distances[i] = cfg->sig_width - list->issl_scores[i];
     list->docnames[i] = (const char *)(sig_file + ((size_t)cfg->sig_record_size * list->docIds[i]));
 
@@ -147,7 +171,6 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
   qsort(clarify, list->results, sizeof(ClarifyEntry), compareResultLists);
 
   ResultList newlist = createResultList(list->results);
-  //newlist.docnames = malloc(sizeof(char *) * list->results);
   for (int i = 0; i < list->results; i++) {
     int j = clarify[i].i;
     newlist.issl_scores[i] = list->issl_scores[j];
@@ -166,19 +189,9 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
 static void Output_Results(int topic_id, const ResultList *list)
 {
   for (int i = 0; i < list->results; i++) {
-    //printf("%d. %d (%d) - %s\n", i, list->docIds[i], list->distances[i], list->docnames[i]);
-    //printf("%d Q0 %s %d %d Topsig-Exhaustive\n", topic_id, list->docnames[i], i + 1, 1000000 - i);
     printf("%d Q0 %s %d %d Topsig-Exhaustive %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i]);
   }
 }
-
-typedef struct {
-  const SignatureHeader *sig_cfg;
-  const unsigned char *sig_file;
-  int doc_begin;
-  int doc_end;
-  ResultList *output;
-} WorkerThroughput;
 
 static void *Throughput_Job(void *input)
 {
@@ -206,7 +219,6 @@ static void *Throughput_Job(void *input)
     int R_lowest_score_i = 0;
 
     for (int cmp_to = 0; cmp_to < sig_cfg->num_signatures; cmp_to++) {
-      //Traverse_ISSL(issl_counts[slice], issl_table[slice], &scores, variants, n_variants_ceasenew, n_variants_stopearly, val, width);
       int docId = cmp_to;
       const unsigned char *cursig = sig_file + (size_t)sig_cfg->sig_record_size * cmp_to + sig_cfg->sig_offset;
       int score = sig_cfg->sig_width - DocumentDistance(sig_cfg->sig_width, sig, mask, cursig);
@@ -234,25 +246,6 @@ static void *Throughput_Job(void *input)
 
   return NULL;
 }
-
-typedef struct {
-  char fname[128];
-  int hd;
-  int topic;
-
-  UT_hash_handle hh;
-} ResultHash;
-
-typedef struct {
-  char docId[128];
-  UT_hash_handle hh;
-} CategorisedDoc;
-
-typedef struct {
-  char catname[256];
-  CategorisedDoc *dochash;
-  UT_hash_handle hh;
-} Category;
 
 void HistogramAdd(SignatureHeader *sig_cfg, const unsigned char *sig_file, int *histogram, const unsigned char *sig, const unsigned char *mask, ResultHash *H, int topic_only, int start_from, int must_be_in_table, CategorisedDoc *dochash, const char *sig_fname)
 {
@@ -286,12 +279,6 @@ void HistogramAdd(SignatureHeader *sig_cfg, const unsigned char *sig_file, int *
     }
   }
 }
-
-//
-// HISTOGRAM-TYPE  "doc" / "query"
-// HISTOGRAM-SOURCE (number of signatures from doc) or (query)
-
-
 
 void RunHistogram()
 {
@@ -343,7 +330,6 @@ void RunHistogram()
     if (Config("HISTOGRAM-QRELS-TOPIC"))
       qr_topic_restriction = atoi(Config("HISTOGRAM-QRELS-TOPIC"));
     while (fscanf(fp, "%d %s %s %d\n", &qr_topic, qr_q, fname, &qr_rel) == 4) {
-      //fprintf(stderr, "%d %s %s %d\n", qr_topic, qr_q, fname, qr_rel);
       if (qr_rel) {
         if ((qr_topic_restriction == -1) || (qr_topic == qr_topic_restriction)) {
           ResultHash *f = NULL;
@@ -380,19 +366,16 @@ void RunHistogram()
     for (int cur_topic = topic_start; cur_topic <= topic_end; cur_topic++) {
       fprintf(stderr, "TOPIC: %d\n", cur_topic);
       for (int i = 0; i < sigcount; i++) {
-        //fprintf(stderr, "..%d\n", i);
         const char *fname = (const char *)(sig_file + (size_t)sig_cfg.sig_record_size * i);
         if (H) {
           ResultHash *f = NULL;
 
           HASH_FIND_STR(H, fname, f);
           if (!f || f->topic != cur_topic) {
-            //fprintf(stderr, "continue\n");
             continue;
           }
           fprintf(stderr, "  - %d %s\n", i, fname);
         } else {
-          //fprintf(stderr, "NO HASH TABLE\n");
         }
         const unsigned char *sig = sig_file + (size_t)sig_cfg.sig_record_size * i + sig_cfg.sig_offset;
         HistogramAdd(&sig_cfg, sig_file, histogram, sig, mask, H, cur_topic, i + 1, 1, dochash, fname);
@@ -411,7 +394,6 @@ void RunHistogram()
   for (int i = 0; i <= sig_cfg.sig_width; i++) {
    xcount += histogram[i];
   }
-  //printf("%f\n", (double)xcount);
   for (int i = 0; i <= sig_cfg.sig_width; i++) {
     printf("%.32f\n", (double)histogram[i] / (double)xcount);
   }
@@ -432,8 +414,8 @@ void __RunExhaustiveDocsimSearch()
   int thread_count = 1;
   int search_doc_first = 0;
   int search_doc_last = 9999;
-  if (Config("SEARCH-DOC-THREADS")) {
-    thread_count = atoi(Config("SEARCH-DOC-THREADS"));
+  if (Config("THREADS")) {
+    thread_count = atoi(Config("THREADS"));
   }
   if (Config("SEARCH-DOC-FIRST"))
     search_doc_first = atoi(Config("SEARCH-DOC-FIRST"));

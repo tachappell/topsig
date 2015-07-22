@@ -1,9 +1,11 @@
 // Thread-safe stemming
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "topsig-stem.h"
+#include "topsig-global.h"
 #include "topsig-config.h"
 #include "topsig-porterstemmer.h"
 #include "topsig-thread.h"
@@ -67,19 +69,20 @@ char *Stem(char *str) {
 
 void InitStemmingConfig()
 {
-  const char *s = Config("STEMMER");
+  const char *s = GetOptionalConfig("STEMMER", "none");
 
-  if (strcmp(s, "porter")==0) {
+  if (strcmp_lc(s, "porter")==0) {
     currentStemmer = PORTER;
     return;
   }
-  if (strcmp(s, "none")==0) {
+  if (strcmp_lc(s, "none")==0) {
     currentStemmer = NONE;
     return;
   }
-  if (strcmp(s, "s")==0) {
+  if (strcmp_lc(s, "s")==0) {
     currentStemmer = S;
     return;
   }
-  currentStemmer = NONE;
+  fprintf(stderr, "Error: The specified stemmer \"%s\" is not implemented.\n", s);
+  exit(1);
 }

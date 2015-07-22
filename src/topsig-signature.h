@@ -9,7 +9,6 @@ typedef struct Signature Signature;
 struct SignatureCache;
 typedef struct SignatureCache SignatureCache;
 
-
 void InitSignatureConfig();
 
 Signature *NewSignature(const char *docId);

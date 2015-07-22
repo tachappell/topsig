@@ -18,6 +18,29 @@ typedef struct {
   int num_signatures;
 } SignatureHeader;
 
+typedef struct {
+  int results;
+  int *issl_scores;
+  int *distances;
+  int *docids;
+  int *offset_begins;
+  int *offset_ends;
+  const char **docnames;
+} ResultList;
+
+typedef struct {
+  ResultList *list;
+  int i;
+} ClarifyEntry;
+
+typedef struct {
+  const SignatureHeader *sig_cfg;
+  const unsigned char *sig_file;
+  int doc_begin;
+  int doc_end;
+  ResultList *output;
+} WorkerThroughput;
+
 static SignatureHeader readSigHeader(FILE *fp)
 {
   SignatureHeader cfg;
@@ -74,16 +97,6 @@ static SignatureHeader readSigFile(const char *path, unsigned char **buf)
   return cfg;
 }
 
-typedef struct {
-  int results;
-  int *issl_scores;
-  int *distances;
-  int *docids;
-  int *offset_begins;
-  int *offset_ends;
-  const char **docnames;
-} ResultList;
-
 static ResultList createResultList(int k)
 {
   ResultList R;
@@ -110,12 +123,6 @@ static void destroyResultList(ResultList *R)
   free(R->docids);
   free(R->docnames);
 }
-
-
-typedef struct {
-  ResultList *list;
-  int i;
-} ClarifyEntry;
 
 static int compareResultLists(const void *A, const void *B)
 {
@@ -173,14 +180,6 @@ static void Output_Results(int topic_id, const ResultList *list)
     printf("%d Q0 %s %d %d Topsig-Exhaustive %d %d %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i], list->offset_begins[i], list->offset_ends[i]);
   }
 }
-
-typedef struct {
-  const SignatureHeader *sig_cfg;
-  const unsigned char *sig_file;
-  int doc_begin;
-  int doc_end;
-  ResultList *output;
-} WorkerThroughput;
 
 static void *Throughput_Job(void *input)
 {
@@ -244,8 +243,8 @@ void RunExhaustiveDocsimSearch()
   int threadCount = 1;
   int searchDocFirst = 0;
   int searchDocLast = 9999;
-  if (Config("SEARCH-DOC-THREADS")) {
-    threadCount = atoi(Config("SEARCH-DOC-THREADS"));
+  if (Config("THREADS")) {
+    threadCount = atoi(Config("THREADS"));
   }
   if (Config("SEARCH-DOC-FIRST"))
     searchDocFirst = atoi(Config("SEARCH-DOC-FIRST"));

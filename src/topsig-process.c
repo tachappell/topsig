@@ -11,7 +11,6 @@
 #include "topsig-stats.h"
 #include "topsig-signature.h"
 #include "topsig-global.h"
-//#include "topsig-thread.h"
 #include "topsig-progress.h"
 #include "topsig-document.h"
 
@@ -201,8 +200,6 @@ void ProcessFile(SignatureCache *C, Document *doc)
         if (xml_intag || xml_inelement) filterok = 0;
         break;
     }
-    //if (strcmp(doc->docid, "2572")==0)
-      //fprintf(stderr, "%d%d[%d%d]%c", cfg.charmask[(int)*p], filterok, xml_inelement, xml_intag, *p);
     if (cfg.charmask[(int)*p] && filterok) {
       if (cterm_len < 1023) {
         if (term_pos == -1) term_pos = p - doc->data;
@@ -250,7 +247,6 @@ void ProcessFile(SignatureCache *C, Document *doc)
   currdoc = NULL;
   lastdoc = NULL;
   FreeDocument(doc);
-  //printf("ProcessFile() out\n");fflush(stdout);
 }
 
 void InitProcessConfig()

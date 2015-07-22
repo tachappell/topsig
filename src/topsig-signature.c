@@ -51,7 +51,6 @@ static struct {
   int seed;
   int maxNameLength;
   int termCacheSize;
-  int threadingMode;
 
   enum {
     TRADITIONAL,
@@ -202,18 +201,12 @@ void SignatureAdd(SignatureCache *C, Signature *sig, const char *term, int count
   if (term_tmp) free(term_tmp);
 }
 
-//#define TS_LOGLIKELIHOOD
-//#define TS_TFIDF_RAW
-//#define TS_BM25
-//#define TS_NOTHING
-
 #if !defined(TS_LOGLIKELIHOOD) && !defined(TS_TFIDF_RAW) && !defined(TS_BM25) && !defined(TS_NOTHING)
 #define TS_LOGLIKELIHOOD
 #endif
 
 void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, int count, int totalCount, double weight_multiplier)
 {
-  //fprintf(stderr, "[%s]-%f\n", term, weight_multiplier);
   int weight = count * 1000;
 
 
@@ -224,34 +217,23 @@ void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, i
     double logLikelihood = log((double) count / (double) totalCount * (double) totalTerms / (double) tcf);
     if (logLikelihood > 0) {
       weight = logLikelihood * (count-0.5) * 1000.0;
-    } else {
-//        return;
     }
-    //weight = logLikelihood * (count-0.9) * 1000.0;
     #endif
     #ifdef TS_TFIDF_RAW
     double tf = count;
     double idf = TermFrequencyDF(term);
     double df = idf;
     idf = log(num_sigs / (1 + idf));
-    //idf = log((num_sigs - idf + 0.5) / (idf + 0.5));
     if (idf < 0.0) idf = 0.0;
     weight = tf * idf * 1000;
-    //if (weight < 0) weight = 1;
-    //fprintf(stderr, "[%s] count: %.0f\t\tdf: %.0f\t\tidf: %f\t\twt: %d\n", term, tf, df, idf, weight);
 
     #endif
     #ifdef TS_BM25
     double tf = count;
     double idf = TermFrequencyDF(term);
-    //double avg_len = 263.720996; // wsj
-    //double avg_len = 291.304799; // wsj
     double avg_len = 333.774137; // Wikipedia
 
-    // BM25 IDF
     idf = log((num_sigs - idf + 0.5) / (idf + 0.5));
-    // TFIDF IDF
-    //idf = log(num_sigs / (1 + idf));
 
     if (idf < 0.0) idf = 0.0;
 
@@ -259,35 +241,22 @@ void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, i
     double b = 0.75;
 
     double sigma = -0.725;
-    //double sigma = 0;
-    //double sigma = 0.5;
-
-    //fprintf(stderr, "tf %f idf %f\n", tf, idf);
-
-    //fprintf(stderr, "ff %s %d %f\n", term, totalCount, avg_len);
 
     double lb2 = k1 / (k1 + 2.0);
     double bm25 = (tf * (k1 + 1)) / (tf + k1 * (1.0 - b + b * (1.0 * totalCount / avg_len))) + sigma;
     if (bm25 < 0) bm25 = 0;
-    //if (!(lb2 < bm25)) {
-    //fprintf(stderr, "! %s: %f < %f\n", term, lb2, bm25);
-    //}
     weight = bm25 * idf * 1000.0;
-    //if (weight < 0) weight = 1;
     #endif
     #ifdef TS_NOTHING
     weight = count;
-    //This change increases map in wsj from .0790 to .0811
-    //weight = (1.0 * count - 0.9) * 1000.0;
+
     if (weight < 0) weight = 1;
     #endif
 
 
   }
-  //fprintf(stderr, "weight (%s): %d -> %d\n", term, count, weight);
   weight *= weight_multiplier;
 
-  //printf("SignatureAdd() in\n");fflush(stdout);
   int sigarray[cfg.length];
   memset(sigarray, 0, cfg.length * sizeof(int));
 
@@ -300,7 +269,6 @@ void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, i
     if (ct) {
       cached = 1;
       memcpy(sigarray, ct->S, cfg.length * sizeof(int));
-      //_cache_hit++;
     }
   }
 
@@ -348,12 +316,8 @@ void SignatureAddWeighted(SignatureCache *C, Signature *sig, const char *term, i
 
 
   for (int i = 0; i < cfg.length; i++) {
-    //int oi = sig->S[i];
     sig->S[i] += sigarray[i] * weight;
-    //if (oi != 0 && sig->S[i] == 0)
-    //  sig->S[i] = oi > 0 ? 1 : -1;
   }
-  //printf("SignatureAdd() out\n");fflush(stdout);
 }
 
 
@@ -424,7 +388,7 @@ TSemaphore sem_cacheused[SIGCACHESIZE];
 
 static void initCache()
 {
-  cache.fp = fopen(Config("SIGNATURE-PATH"), "wb");
+  cache.fp = fopen(GetMandatoryConfig("SIGNATURE-PATH", "Error: You need to specify a SIGNATURE-PATH to write the signature file out to."), "wb");
   InitSemaphore(&sem_cachefree, 0, SIGCACHESIZE);
   for (int i = 0; i < SIGCACHESIZE; i++) {
     InitSemaphore(&sem_cacheused[i], 0, 0);
@@ -448,8 +412,21 @@ static void initCache()
   int signatureDensity = cfg.density;
   int signatureSeed = cfg.seed;
   char signatureMethod[64] = {0};
+  
+  const char *method = NULL;
+  switch (cfg.method) {
+    case TRADITIONAL:
+      method = "TRADITIONAL";
+      break;
+    case SKIP:
+      method = "SKIP";
+      break;
+    case OLD:
+      method = "OLD";
+      break;
+  }
 
-  strncpy(signatureMethod, Config("SIGNATURE-METHOD"), 64);
+  strncpy(signatureMethod, method, 64);
 
   fileWrite32(headerSize, cache.fp);
   fileWrite32(version, cache.fp);
@@ -520,52 +497,26 @@ void SignatureFlush()
 
 void InitSignatureConfig()
 {
-  char *C = Config("SIGNATURE-WIDTH");
-  if (C == NULL) {
-    fprintf(stderr, "SIGNATURE-WIDTH unspecified\n");
-    exit(1);
-  }
-  cfg.length = atoi(C);
+  // 1024-bit signatures by default- good compromise between size and quality
+  cfg.length = GetIntegerConfig("SIGNATURE-WIDTH", 1024);
+  
+  // 1/21 density used as a sensible default
+  cfg.density = GetIntegerConfig("SIGNATURE-DENSITY", 21);
 
-  C = Config("SIGNATURE-DENSITY");
-  if (C == NULL) {
-    fprintf(stderr, "SIGNATURE-DENSITY unspecified\n");
-    exit(1);
-  }
-  cfg.density = atoi(C);
+  cfg.seed = GetIntegerConfig("SIGNATURE-SEED", 0);
 
-  cfg.seed = 0;
-  C = Config("SIGNATURE-SEED");
-  if (C) {
-    cfg.seed = atoi(C);
+  // 255 is perhaps overly long, but it is still a reasonable default to use for handling
+  // a variety of documents
+  cfg.maxNameLength = GetIntegerConfig("MAX-DOCNAME-LENGTH", 255);
+  
+  if (cfg.maxNameLength % 8 != 7) {
+    fprintf(stderr, "Warning: MAX-DOCNAME-LENGTH should be one less than a multiple of 8 to maintain alignment for 64-bit reads.\n");
   }
 
-  C = Config("MAX-DOCNAME-LENGTH");
-  if (C == NULL) {
-    fprintf(stderr, "MAX-DOCNAME-LENGTH unspecified\n");
-    exit(1);
-  }
-  cfg.maxNameLength = atoi(C);
+  // A default term cache size of 10,000 consumes little memory but greatly improves indexing speed
+  cfg.termCacheSize = GetIntegerConfig("TERM-CACHE-SIZE", 10000);
 
-  C = Config("TERM-CACHE-SIZE");
-  if (C) {
-    cfg.termCacheSize = atoi(C);
-  } else {
-    cfg.termCacheSize = 0;
-  }
-
-  C = Config("INDEX-THREADING");
-  if (C && strcmp(C, "multi") == 0) {
-    cfg.threadingMode = 1;
-  } else {
-    cfg.threadingMode = 0;
-  }
-
-  C = Config("SIGNATURE-METHOD");
-  if (C == NULL) {
-    fprintf(stderr, "SIGNATURE-METHOD unspecified\n");
-    exit(1);
-  }
+  const char *C = GetOptionalConfig("SIGNATURE-METHOD", "TRADITIONAL");
   if (strcmp_lc(C, "TRADITIONAL")==0) cfg.method = TRADITIONAL;
   if (strcmp_lc(C, "SKIP")==0) cfg.method = SKIP;
   if (strcmp_lc(C, "OLD")==0) cfg.method = OLD;
