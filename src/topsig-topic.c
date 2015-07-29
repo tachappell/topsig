@@ -5,14 +5,14 @@
 #include "topsig-global.h"
 #include "topsig-config.h"
 #include "topsig-search.h"
+#include "topsig-stats.h"
 
 static void runQuery(Search *S, const char *topic_id, const char *topic_txt, const char *topic_refine, FILE *fp)
 {
   static void (*outputwriter)(FILE *fp, const char *, Results *) = NULL;
 
   outputwriter = Writer_trec;
-  int num = atoi(Config("TOPIC-OUTPUT-K"));
-
+  int num = GetIntegerConfig("K", 10);
   Results *R = NULL;
   if (strcmp_lc(Config("TOPIC-REFINE-INVERT"), "true")!=0) {
     R = SearchCollectionQuery(S, topic_txt, num);
@@ -123,26 +123,37 @@ static void readerPlagDet(Search *S, FILE *in, FILE *out)
 
 void RunTopic()
 {
+  // Initialise term statistics (if relevant)
+  Stats_Initcfg();
+  
   void (*topicReader)(Search *, FILE *, FILE *) = NULL;
-  const char *topicpath = Config("TOPIC-PATH");
-  const char *topicformat = Config("TOPIC-FORMAT");
-  const char *topicoutput = Config("TOPIC-OUTPUT-PATH");
+  const char *topicpath = GetMandatoryConfig("TOPIC-PATH", "The path to the topic file needs to be specified through -topic-path (topic file)");
+  FILE *fp = fopen(topicpath, "rb");
+  if (!fp) {
+    fprintf(stderr, "The topic file \"%s\" could not be opened.\n", topicpath);
+    exit(1);
+  }
+  
+  const char *topicformat = GetOptionalConfig("TOPIC-FORMAT", "wsj");
 
   if (strcmp_lc(topicformat, "wsj")==0) topicReader = readerWSJ;
   if (strcmp_lc(topicformat, "filelist_rf")==0) topicReader = readerFilelistRF;
   if (strcmp_lc(topicformat, "plagdet")==0) topicReader = readerPlagDet;
-  FILE *fp = fopen(topicpath, "rb");
-  FILE *fo = fopen(topicoutput, "wb");
-
-  if (!fp) {
-    fprintf(stderr, "Failed to open topic file.\n");
-    exit(1);
+  
+  const char *topicoutput = Config("TOPIC-OUTPUT-PATH");
+  FILE *fo;
+  if (topicoutput) {
+    fo = fopen(topicoutput, "wb");
+    if (!fo) {
+      fprintf(stderr, "The results file \"%s\" could not be opened for writing.\n", topicoutput);
+      exit(1);
+    }
+  } else {
+    fo = stdout;
   }
 
   Search *S = InitSearch();
-
   topicReader(S, fp, fo);
-
   FreeSearch(S);
   fclose(fp);
 }

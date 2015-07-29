@@ -220,9 +220,9 @@ void CreateISSLTable()
     }
   }
 
-  FILE *fp = fopen(Config("SIGNATURE-PATH"), "rb");
+  FILE *fp = fopen(GetMandatoryConfig("SIGNATURE-PATH", "The path to a signature file must be provided with the -signature-path (signature file) option."), "rb");
   if (!fp) {
-    fprintf(stderr, "Failed to open signature file.\n");
+    fprintf(stderr, "Failed to open signature file for reading.\n");
     exit(1);
   }
   SignatureHeader sigCfg = readSigHeader(fp);
@@ -242,7 +242,7 @@ void CreateISSLTable()
 
   // Write out ISSL table
 
-  FILE *fo = fopen(Config("ISSL-PATH"), "wb");
+  FILE *fo = fopen(GetMandatoryConfig("ISSL-PATH", "The path to write the ISSL table to must be provided with the -issl-path (ISSL table) argument"), "wb");
   if (!fo) {
     fprintf(stderr, "Failed to write out ISSL table\n");
     exit(1);
@@ -655,9 +655,9 @@ void SearchISSLTable()
   int **isslCounts;
   int ***isslTable;
 
-  ISSLHeader isslCfg = readSliceTable(Config("ISSL-PATH"), &isslCounts, &isslTable);
+  ISSLHeader isslCfg = readSliceTable(GetMandatoryConfig("ISSL-PATH", "The path to the ISSL table must be provided through the -issl-path (ISSL table) argument"), &isslCounts, &isslTable);
   unsigned char *sigFile;
-  SignatureHeader sigCfg = readSigFile(Config("SIGNATURE-PATH"), &sigFile, isslCfg.signature_count);
+  SignatureHeader sigCfg = readSigFile(GetMandatoryConfig("SIGNATURE-PATH", "The path to the signature file must be provided through the -signature-path (signature file) argument"), &sigFile, isslCfg.signature_count);
 
   int nVariants = 1 << isslCfg.avg_slicewidth;
   int *variants = malloc(sizeof(int) * nVariants);
@@ -682,7 +682,7 @@ void SearchISSLTable()
   int jobCount = GetIntegerConfig("JOBS", 0);
   
   // Default of 16 jobs per thread if there are multiple threads.
-  if (jobCount < 0) {
+  if (jobCount <= 0) {
     if (threadCount != 1) {
       jobCount = threadCount * 16;
     } else {

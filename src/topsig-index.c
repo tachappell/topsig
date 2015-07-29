@@ -611,6 +611,9 @@ static void (*getArchiveReader(const char *targetformat))(FileHandle *, void (*)
 
 void RunIndex()
 {
+  // Initialise term statistics (if relevant)
+  Stats_Initcfg();
+  
   char path[2048];
   void (*archiveReader)(FileHandle *, void (*)(Document *));
   archiveReader = getArchiveReader(GetOptionalConfig("TARGET-FORMAT", "file"));

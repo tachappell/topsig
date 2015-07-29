@@ -157,7 +157,7 @@ Search *InitSearch()
 
   S->cfg.termWeightSuffixes = GetBooleanConfig("TERMWEIGHT-SUFFIXES", 0);
 
-  // Read config info
+  // Read header info from signature file
 
   S->cfg.headersize = fileRead32(S->sig); // header-size
   int version = fileRead32(S->sig); // version
@@ -188,12 +188,14 @@ Search *InitSearch()
   OverrideConfigParam("SIGNATURE-METHOD", S->cfg.method);
 
   ConfigInit();
+  
+  const char *charmask = GetOptionalConfig("CHARMASK", "alnum");
 
-  if (strcmp_lc(Config("CHARMASK"),"alpha")==0)
+  if (strcmp_lc(charmask,"alpha")==0)
     for (int i = 0; i < 256; i++) S->cfg.charmask[i] = isalpha(i);
-  if (strcmp_lc(Config("CHARMASK"),"alnum")==0)
+  if (strcmp_lc(charmask,"alnum")==0)
     for (int i = 0; i < 256; i++) S->cfg.charmask[i] = isalnum(i);
-  if (strcmp_lc(Config("CHARMASK"),"all")==0)
+  if (strcmp_lc(charmask,"all")==0)
     for (int i = 0; i < 256; i++) S->cfg.charmask[i] = isgraph(i);
 
   S->cfg.prf_scalingfactor = SCALING_FACTOR_DEFAULT;
@@ -226,21 +228,9 @@ Search *InitSearch()
       S->cfg.prf_reranktype = PSEUDO_RERANK_RESIDUAL;
   }
 
-  S->cfg.prf_rerankiters = 1;
-  C = Config("PSEUDO-FEEDBACK-ITERATIONS");
-  if (C) {
-    S->cfg.prf_rerankiters = atoi(C);
-  }
-  S->cfg.prf_negfeedback = 0;
-  C = Config("PSEUDO-FEEDBACK-NEGSAMPLE");
-  if (C) {
-    S->cfg.prf_negfeedback = atoi(C);
-  }
-  S->cfg.prf_ignorefirst = 0;
-  C = Config("PSEUDO-FEEDBACK-IGNOREFIRST");
-  if (C) {
-    S->cfg.prf_ignorefirst = atoi(C);
-  }
+  S->cfg.prf_rerankiters = GetIntegerConfig("PSEUDO-FEEDBACK-ITERATIONS", 1);
+  S->cfg.prf_negfeedback = GetIntegerConfig("PSEUDO-FEEDBACK-NEGSAMPLE", 0);
+  S->cfg.prf_ignorefirst = GetIntegerConfig("PSEUDO-FEEDBACK-IGNOREFIRST", 0);
 
   S->cfg.fb_classTable = NULL;
   C = Config("FEEDBACK-DOCUMENT-CLASSES");
@@ -257,23 +247,9 @@ Search *InitSearch()
     fclose(fp);
   }
 
-  S->cfg.OnlyConsiderRelevant = 0;
-  C = Config("FEEDBACK-ONLY-RELEVANT");
-  if (C) {
-    S->cfg.OnlyConsiderRelevant = atoi(C);
-  }
-
-  S->cfg.MaxRelevantSamples = INT_MAX;
-  C = Config("FEEDBACK-MAX-RELEVANT");
-  if (C) {
-    S->cfg.MaxRelevantSamples = atoi(C);
-  }
-
-  S->cfg.MaxIrrelevantSamples = INT_MAX;
-  C = Config("FEEDBACK-MAX-IRRELEVANT");
-  if (C) {
-    S->cfg.MaxIrrelevantSamples = atoi(C);
-  }
+  S->cfg.OnlyConsiderRelevant = GetIntegerConfig("FEEDBACK-ONLY-RELEVANT", 0);
+  S->cfg.MaxRelevantSamples = GetIntegerConfig("FEEDBACK-MAX-RELEVANT", INT_MAX);
+  S->cfg.MaxIrrelevantSamples = GetIntegerConfig("FEEDBACK-MAX-IRRELEVANT", INT_MAX);
 
 
 
@@ -481,7 +457,7 @@ void ApplyClassFeedback(Search *S, Results *R, char *docName)
 
     memset(bmask, 255, S->cfg.length / 8);
 
-    int rerank_k = atoi(Config("PSEUDO-FEEDBACK-RERANK"));
+    int rerank_k = GetIntegerConfig("PSEUDO-FEEDBACK-RERANK", 0);
 
     int rerank_start = 0;
 
@@ -594,7 +570,7 @@ void ApplyBlindFeedback(Search *S, Results *R, int sample)
 
     memset(bmask, 255, S->cfg.length / 8);
 
-    int rerank_k = atoi(Config("PSEUDO-FEEDBACK-RERANK"));
+    int rerank_k = GetIntegerConfig("PSEUDO-FEEDBACK-RERANK", 0);
 
     int rerank_start = 0;
 
@@ -888,6 +864,32 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
   return R;
 }
 
+static void freeresult(struct Result *R)
+{
+  free(R->docId);
+  free(R->signature);
+  #ifdef HEAP_RESULTLIST
+  if (R->h)
+    free(R->h);
+  #endif /* HEAP_RESULTLIST */
+}
+
+// This should only be called if the list has already been sorted
+static void removeNullResults(Results *R)
+{
+  int delMode = 0;
+  int deletedResults = 0;
+  for (int i = 0; i < R->k; i++) {
+    if (R->res[i].dist == INT_MAX) {
+      delMode = 1;
+    }
+    if (delMode == 1) {
+      deletedResults++;
+      freeresult(&R->res[i]);
+    }
+  }
+  R->k -= deletedResults;
+}
 
 Results *SearchCollection(Search *S, Signature *sig, const int topk)
 {
@@ -957,6 +959,8 @@ Results *SearchCollection(Search *S, Signature *sig, const int topk)
   }
 
   qsort(R->res, topk, sizeof(R->res[0]), result_compar);
+  
+  removeNullResults(R);
 
   if (S->cfg.fb_classTable) {
     static int dinesha_queryid = 0;
@@ -986,6 +990,9 @@ Results *SearchCollectionQuery(Search *S, const char *query, const int topk)
 
 void PrintResults(Results *R, int k)
 {
+  if (R->k < k) {
+    k = R->k;
+  }
   for (int i = 0; i < k; i++) {
     printf("%d. %s (%d)\n", i+1, R->res[i].docId, R->res[i].dist);
   }
@@ -998,15 +1005,6 @@ void Writer_trec(FILE *out, const char *topic_id, Results *R)
   }
 }
 
-static void freeresult(struct Result *R)
-{
-  free(R->docId);
-  free(R->signature);
-  #ifdef HEAP_RESULTLIST
-  if (R->h)
-    free(R->h);
-  #endif /* HEAP_RESULTLIST */
-}
 void FreeResults(Results *R)
 {
   for (int i = 0; i < R->k; i++) {

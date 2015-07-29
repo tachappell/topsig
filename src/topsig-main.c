@@ -8,10 +8,45 @@
 #include "topsig-stats.h"
 #include "topsig-histogram.h"
 #include "topsig-exhaustive-docsim.h"
-
 #include "topsig-experimental-rf.h"
 
 static void usage();
+
+typedef struct {
+  const char *mode;
+  void (*function)(void);
+  const char *desc;
+} ExecutionMode;
+
+static const ExecutionMode executionModes[] = {
+  {"index", RunIndex, "Create a signature file from a document collection"},
+  {"query", RunQuery, "Search a signature file with a text query"},
+  {"topic", RunTopic, "Search a signature file with a topic file"},
+  {"termstats", RunTermStats, "Create a database of global term statistics"},
+  {"histogram", RunHistogram, "Producing a frequency table of pairwise Hamming distances"},
+  {"create-issl", CreateISSLTable, "Create an ISSL table from a signature file"},
+  {"search-issl", SearchISSLTable, "Search an ISSL table for pairwise-similar signatures"},
+  
+  // These are old modes, maintained for the sake of backwards compatibility but not documented
+  {"experimental-rf", RunExperimentalRF, NULL},
+  {"createisl", CreateISSLTable, NULL},
+  {"docsim", SearchISSLTable, NULL},
+  {"exhaustive-docsim", RunExhaustiveDocsimSearch, NULL},
+};
+
+static const int executionModeCount = sizeof(executionModes) / sizeof(executionModes[0]);
+
+static void runExecutionMode(const char *mode)
+{
+  for (int i = 0; i < executionModeCount; i++) {
+    if (strcmp(mode, executionModes[i].mode)==0) {
+      executionModes[i].function();
+      return;
+    }
+  }
+  
+  usage();
+}
 
 int main(int argc, const char **argv)
 {
@@ -26,24 +61,8 @@ int main(int argc, const char **argv)
   
   ConfigInit();
   
-  if (strcmp(argv[1], "index")==0 ||
-      strcmp(argv[1], "query")==0 ||
-      strcmp(argv[1], "topic")==0 ||
-      strcmp(argv[1], "experimental-rf")==0) Stats_Initcfg();
-
-  if (strcmp(argv[1], "index")==0) RunIndex();
-  else if (strcmp(argv[1], "query")==0) RunQuery();
-  else if (strcmp(argv[1], "topic")==0) RunTopic();
-  else if (strcmp(argv[1], "termstats")==0) RunTermStats();
-
-  // Experimental modes are not listed in the usage() function
-  else if (strcmp(argv[1], "experimental-rf")==0) RunExperimentalRF();
-  else if (strcmp(argv[1], "createisl")==0) CreateISSLTable();
-  else if (strcmp(argv[1], "docsim")==0) SearchISSLTable();
-  else if (strcmp(argv[1], "exhaustive-docsim")==0) RunExhaustiveDocsimSearch();
-  else if (strcmp(argv[1], "histogram")==0) RunHistogram();
-
-  else usage();
+  runExecutionMode(argv[1]);
+  
   return 0;
 }
 
@@ -51,10 +70,18 @@ static void usage()
 {
   fprintf(stderr, "Usage: ./topsig [mode] {options}\n");
   fprintf(stderr, "Valid options for [mode] are:\n");
+  /*
   fprintf(stderr, "  index\n");
   fprintf(stderr, "  query\n");
   fprintf(stderr, "  topic\n");
   fprintf(stderr, "  termstats\n\n");
+  */
+  for (int i = 0; i < executionModeCount; i++) {
+    if (executionModes[i].desc) {
+      fprintf(stderr, "  %s: %s\n", executionModes[i].mode, executionModes[i].desc);
+    }
+  }
+  
   fprintf(stderr, "Configuration information is by default read from\n");
   fprintf(stderr, "config.txt in the current working directory.\n");
   fprintf(stderr, "Additional configuration files can be added through\n");

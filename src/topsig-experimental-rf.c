@@ -12,11 +12,14 @@
 #define NUM_RESULTS 1000
 char topic[MAX_TOPIC_LENGTH + 1];
 char readFeedback[MAX_FEEDBACK_LENGTH + 1];
-char oldFeedback[MAX_FEEDBACK_LENGTH + 1] = "";
+char oldFeedback[MAX_FEEDBACK_LENGTH + 1];
 char feedback[MAX_FEEDBACK_LENGTH + MAX_TOPIC_LENGTH * 2 + 3];
 
 void RunExperimentalRF()
 {
+  // Initialise term statistics (if relevant)
+  Stats_Initcfg();
+  
   fprintf(stderr, "TopSig experimental relevance feedback mode\n");
   fflush(stderr);
   Search *S = InitSearch();
