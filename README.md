@@ -17,6 +17,38 @@ The invocation mode specifies the overall operation TopSig is being instructed t
 * `create-issl`: When invoked in this mode, TopSig will read in the signature file specified through `-signature-path` and write out an inverted signature slice list (ISSL) table to the path specified through `-issl-path`.
 * `search-issl`: When invoked in this mode, TopSig will read in the ISSL table and signature file specified with the `-issl-path` and `-signature-path` options and perform accelerated pairwise searches against signatures in this collection.
 
-## Configuration options
+## Configuring TopSig
 
 Configuration options can be passed to TopSig through command-line arguments, configuration files or both.
+
+When configuration options are passed through the command line, they are prefixed with a `-` and followed by the value that the configuration option is to be set to. For instance, to create a signature file named `output.sig` from the files inside a directory named `collections`, the following invocation would be used:
+```
+./topsig index -target-path collection -signature-path output.sig
+```
+
+Configuration options can also be passed through configuration files, which have one configuration option per line (without the `-` prefix), followed by an `=`, followed by the value that the configuration option is to be set to.
+
+By default, TopSig will read configuration information from a file named `config.txt` in the working directory TopSig is invoked from, providing it exists. Additional configuration files can also be specified through the `-config` configuration option. So, for example, the above invocation could also be reproduced by running TopSig with just the invocation mode:
+```
+./topsig index
+```
+...if the following `config.txt` file is also present:
+```
+target-path = collection
+signature-path = output.sig
+```
+If the settings are in a different file, e.g. `settings.cfg`, the path will need to be provided through `-config`:
+```
+./topsig index -config settings.cfg
+```
+Using this option you can keep different configuration files around to make keeping track of the settings used to obtain different results easier.
+
+## Configuration options
+
+### Collection options
+
+These options provide information about the data collection used in indexing. These options are used when TopSig is invoked in the `index` and `termstats` modes.
+
+#### `-target-path (path)`
+
+(tbc..)
