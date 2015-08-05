@@ -5,6 +5,7 @@
 #include "topsig-global.h"
 #include "topsig-config.h"
 #include "topsig-search.h"
+#include "topsig-stats.h"
 
 #define MAX_TOPIC_LENGTH 127
 #define MAX_FEEDBACK_LENGTH 1048575

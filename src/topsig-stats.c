@@ -56,7 +56,7 @@ void AddTermStat(const char *word, int count)
   HASH_FIND_INT(termtable, &word_hash, cterm);
   if (!cterm) {
     if (termlist_size == 0) {
-      termlist_size = atoi(Config("TERMSTATS-SIZE"));
+      termlist_size = GetIntegerConfig("TERMSTATS-SIZE", 1000000);
       termlist = malloc(sizeof(StatTerm) * termlist_size);
     }
     if (termlist_count < termlist_size) {
@@ -117,18 +117,10 @@ void Stats_Initcfg()
 
 void WriteStats()
 {
-  FILE *fp;
-  if (Config("TERMSTATS-PATH-OUTPUT")) {
-    fp = fopen(Config("TERMSTATS-PATH-OUTPUT"), "wb");
-  } else if (Config("TERMSTATS-PATH")) {
-    fp = fopen(Config("TERMSTATS-PATH"), "wb");
-  } else {
-    fprintf(stderr, "Error: undefined termstats output path\n");
-    exit(1);
-  }
+  FILE *fp = fopen(GetMandatoryConfig("TERMSTATS-PATH", "Error: the path to write the term statistics database to must be provided through the -termstats-path (path) option."), "wb");
 
   if (!fp) {
-    fprintf(stderr, "Error: unable to write termstats\n");
+    fprintf(stderr, "Error: unable to write to the provided termstats path\n");
     exit(1);
   }
   int totalTerms = 0;

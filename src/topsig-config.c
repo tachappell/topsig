@@ -55,8 +55,10 @@ void InitConfigDeprecated()
   addDeprecatedConfig("index-threads", "threads", "");
   addDeprecatedConfig("termstats-path-output", "termstats-path", "");
   addDeprecatedConfig("topic-output-k", "k", "");
+  addDeprecatedConfig("topic-output-path", "results-path", "");
   addDeprecatedConfig("search-doc-topk", "k-output", "");
   addDeprecatedConfig("search-doc-rerank", "k", "");
+  addDeprecatedConfig("output-progress-documents", "total-documents", "");
   
   addDeprecatedConfig("search-threading", "", "This option is no longer required as a THREADS value greater than 1 is sufficient to enable multithreading.");
   addDeprecatedConfig("index-threading", "", "This option is no longer required as a THREADS value greater than 1 is sufficient to enable multithreading.");

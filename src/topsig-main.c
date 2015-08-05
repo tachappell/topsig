@@ -23,11 +23,11 @@ static const ExecutionMode executionModes[] = {
   {"query", RunQuery, "Search a signature file with a text query"},
   {"topic", RunTopic, "Search a signature file with a topic file"},
   {"termstats", RunTermStats, "Create a database of global term statistics"},
-  {"histogram", RunHistogram, "Producing a frequency table of pairwise Hamming distances"},
   {"create-issl", CreateISSLTable, "Create an ISSL table from a signature file"},
   {"search-issl", SearchISSLTable, "Search an ISSL table for pairwise-similar signatures"},
   
   // These are old modes, maintained for the sake of backwards compatibility but not documented
+  {"histogram", RunHistogram, NULL},
   {"experimental-rf", RunExperimentalRF, NULL},
   {"createisl", CreateISSLTable, NULL},
   {"docsim", SearchISSLTable, NULL},

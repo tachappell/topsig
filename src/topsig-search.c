@@ -10,6 +10,7 @@
 #include "topsig-stem.h"
 #include "topsig-stop.h"
 #include "topsig-thread.h"
+#include "topsig-resultwriter.h"
 #include "superfasthash.h"
 
 #include "uthash.h"
@@ -82,6 +83,16 @@ struct ResultHash {
 };
 #endif /* HEAP_RESULTLIST */
 
+typedef struct {
+  int uniqueTerms;
+  int documentCharLength;
+  int totalTerms;
+  int unused7;
+  int unused8;
+  
+  int docNum;
+} ExtraMetadata;
+
 struct Result {
   char *docId;
   unsigned int docId_hash;
@@ -90,6 +101,7 @@ struct Result {
   int qual;
   int offset_begin;
   int offset_end;
+  ExtraMetadata metadata;
 
   #ifdef HEAP_RESULTLIST
   struct ResultHash *h;
@@ -114,7 +126,7 @@ Search *InitSearch()
 
   S->sigcache = NewSignatureCache(0, 0);
 
-  S->sig = fopen(Config("SIGNATURE-PATH"), "rb");
+  S->sig = fopen(GetMandatoryConfig("SIGNATURE-PATH", "The path to a signature file must be provided with the -signature-path (signature file) option."), "rb");
   if (!S->sig) {
     fprintf(stderr, "Signature file could not be loaded.\n");
     exit(1);
@@ -316,7 +328,6 @@ int DocumentDistance(int sigwidth, const unsigned char *in_bsig, const unsigned 
   return DocumentDistance_popcnt3(sigwidth,in_bsig, in_bmask,in_dsig);
 }
 
-
 static int get_document_quality(unsigned char *signature_header_vals)
 {
   // the 'quality' field is the 4th field in the header
@@ -332,6 +343,20 @@ static int get_document_offset_end(unsigned char *signature_header_vals)
 {
   // the 'offset_end' field is the 6th field in the header
   return memRead32(signature_header_vals + (5 * 4));
+}
+
+static ExtraMetadata get_document_extra_metadata(unsigned char *signature_header_vals, int docNum)
+{
+  ExtraMetadata metadata;
+  
+  metadata.uniqueTerms = memRead32(signature_header_vals + (0 * 4));
+  metadata.documentCharLength = memRead32(signature_header_vals + (1 * 4));
+  metadata.totalTerms = memRead32(signature_header_vals + (2 * 4));
+  metadata.unused7 = memRead32(signature_header_vals + (6 * 4));
+  metadata.unused8 = memRead32(signature_header_vals + (7 * 4));
+  metadata.docNum = docNum;
+  
+  return metadata;
 }
 
 int result_compar(const void *a, const void *b)
@@ -722,6 +747,7 @@ void HeapAdd(Search *S, Results *R, struct Result new_res, int duplicates_ok)
       R->res[n].docId_hash = new_res.docId_hash;
       R->res[n].offset_begin = new_res.offset_begin;
       R->res[n].offset_end = new_res.offset_end;
+      R->res[n].metadata = new_res.metadata;
       R->res[n].dist = new_res.dist;
       R->res[n].qual = new_res.qual;
       strncpy(R->res[n].docId, new_res.docId, S->cfg.docnamelen + 1);
@@ -791,6 +817,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
     int qual = get_document_quality(signature_header_vals);
     int offset_begin = get_document_offset_begin(signature_header_vals);
     int offset_end = get_document_offset_end(signature_header_vals);
+    ExtraMetadata metadata = get_document_extra_metadata(signature_header_vals, i);
 
     char *docId = (char *)(signature_header + docId_offset);
     unsigned int docId_hash = SuperFastHash(docId, strlen(docId));
@@ -805,6 +832,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
     new_res.qual = qual;
     new_res.offset_begin = offset_begin;
     new_res.offset_end = offset_end;
+    new_res.metadata = metadata;
 
     if (result_compar(&R->res[lowest_j], &new_res) > 0) {
       int duplicate_found = -1;
@@ -823,6 +851,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
           R->res[lowest_j].qual = qual;
           R->res[lowest_j].offset_begin = offset_begin;
           R->res[lowest_j].offset_end = offset_end;
+          R->res[lowest_j].metadata = metadata;
           strncpy(R->res[lowest_j].docId, docId, S->cfg.docnamelen + 1);
           memcpy(R->res[lowest_j].signature, signature, S->cfg.length / 8);
           dirty = 1;
@@ -834,6 +863,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
           R->res[duplicate_found].qual = qual;
           R->res[duplicate_found].offset_begin = offset_begin;
           R->res[duplicate_found].offset_end = offset_end;
+          R->res[duplicate_found].metadata = metadata;
           strncpy(R->res[duplicate_found].docId, docId, S->cfg.docnamelen + 1);
           memcpy(R->res[duplicate_found].signature, signature, S->cfg.length / 8);
           if (duplicate_found == lowest_j) dirty = 1;
@@ -856,6 +886,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
     new_res.qual = qual;
     new_res.offset_begin = offset_begin;
     new_res.offset_end = offset_end;
+    new_res.metadata = metadata;
 
     HeapAdd(S, R, new_res, duplicates_ok);
 
@@ -912,9 +943,7 @@ Results *SearchCollection(Search *S, Signature *sig, const int topk)
   while (!reached_end) {
     if (S->entire_file_cached != 1) {
       // Read as many signatures from the file as possible
-      fprintf(stderr, "Reading from signature file... ");fflush(stderr);
       size_t sigs_read = fread(S->cache, sig_record_size, max_cached_sigs, S->sig);
-      fprintf(stderr, "done\n");fflush(stderr);
       if (S->entire_file_cached == -1) {
         if (sigs_read < max_cached_sigs) {
           // As this is the first attempt at reading, we can assume that everything was read
@@ -998,10 +1027,14 @@ void PrintResults(Results *R, int k)
   }
 }
 
-void Writer_trec(FILE *out, const char *topic_id, Results *R)
+void OutputResults(FILE *out, const char *topic_id, int topic_num, Results *R)
 {
+  //const char *format = GetOptionalConfig("RESULTS-FORMAT", "%s Q0 %s %d %d %s %d %d %d\\n");
+  const char *format = GetOptionalConfig("RESULTS-FORMAT", "%T Q0 %D %r %s Topsig-ISSL %h\\n");
+
   for (int i = 0; i < R->k; i++) {
-    fprintf(out, "%s Q0 %s %d %d %s %d %d %d\n", topic_id, R->res[i].docId, i+1, 1000000-i, "Topsig", R->res[i].dist, R->res[i].offset_begin, R->res[i].offset_end);
+    //fprintf(out, format, topic_id, R->res[i].docId, i+1, 1000000-i, "Topsig", R->res[i].dist, R->res[i].offset_begin, R->res[i].offset_end);
+    WriteResult(out, format, topic_num, topic_id, R->res[i].metadata.docNum, R->res[i].docId, i + 1, 1000000 - i, R->res[i].dist, R->res[i].metadata.uniqueTerms, R->res[i].metadata.documentCharLength, R->res[i].metadata.totalTerms, R->res[i].qual, R->res[i].offset_begin, R->res[i].offset_end, R->res[i].metadata.unused7, R->res[i].metadata.unused8);
   }
 }
 

@@ -9,6 +9,7 @@
 #include "topsig-config.h"
 #include "topsig-search.h"
 #include "topsig-thread.h"
+#include "topsig-resultwriter.h"
 
 // Starting size of the buffer used to hold the list of documents that were touched during the processing of the ISSL tables
 #define DEFAULT_HOTLIST_BUFFERSIZE 2048
@@ -38,11 +39,25 @@ typedef struct {
 } ScoreTable;
 
 typedef struct {
+  const char *docname;
+  
+  int uniqueTerms;
+  int documentCharLength;
+  int totalTerms;
+  int quality;
+  int offsetBegin;
+  int offsetEnd;
+  int unused7;
+  int unused8;
+} Metadata;
+
+typedef struct {
   int results;
   int *issl_scores;
   int *distances;
   int *docids;
-  const char **docnames;
+  //const char **docnames;
+  Metadata *metadata;
 } ResultList;
 
 typedef struct {
@@ -416,7 +431,7 @@ static ResultList createResultList(int k)
   R.issl_scores = malloc(buffer_size);
   R.distances = malloc(buffer_size);
   R.docids = malloc(buffer_size);
-  R.docnames = malloc(sizeof(char *) * k);
+  R.metadata = malloc(sizeof(Metadata) * k);
 
   memset(R.issl_scores, 0, buffer_size);
   memset(R.distances, 0, buffer_size);
@@ -430,14 +445,18 @@ static void destroyResultList(ResultList *R)
   free(R->issl_scores);
   free(R->distances);
   free(R->docids);
-  free(R->docnames);
+  free(R->metadata);
 }
 
-static void writeResults(int topic_id, const ResultList *list, int top_k)
+static void writeResults(FILE *fp, int topicId, const char *topicName, const ResultList *list, int top_k)
 {
+  const char *format = GetOptionalConfig("RESULTS-FORMAT", "%T Q0 %D %r %s Topsig-ISSL %h\\n");
   if (list->results < top_k) top_k = list->results;
   for (int i = 0; i < top_k; i++) {
-    printf("%d Q0 %s %d %d Topsig-ISSL %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i]);
+    //printf("%d Q0 %s %d %d Topsig-ISSL %d\n", topicId, list->metadata[i].docname, i + 1, 1000000 - i, list->distances[i]);
+    //WriteResult(stdout, "%d Q0 %s %d %d Topsig-ISSL %d\n");
+
+    WriteResult(fp, format, topicId, topicName, list->docids[i], list->metadata[i].docname, i + 1, 1000000 - i, list->distances[i], list->metadata[i].uniqueTerms, list->metadata[i].documentCharLength, list->metadata[i].totalTerms, list->metadata[i].quality, list->metadata[i].offsetBegin, list->metadata[i].offsetEnd, list->metadata[i].unused7, list->metadata[i].unused8);
   }
 }
 
@@ -529,7 +548,21 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
   for (int i = 0; i < top_k; i++) {
     const unsigned char *cursig = sigFile + ((size_t)cfg->sig_record_size * list->docids[i] + cfg->sig_offset);
     list->distances[i] = DocumentDistance(cfg->sig_width, sig, mask, cursig);
-    list->docnames[i] = (const char *)(sigFile + ((size_t)cfg->sig_record_size * list->docids[i]));
+    
+    const char *sigDocname = (const char *)(sigFile + ((size_t)cfg->sig_record_size * list->docids[i]));
+    
+    list->metadata[i].docname = sigDocname;
+    
+    unsigned const char *sigMetadata = (unsigned const char *)(sigDocname + cfg->max_name_len + 1);
+    
+    list->metadata[i].uniqueTerms = memRead32(sigMetadata + 0*4);
+    list->metadata[i].documentCharLength = memRead32(sigMetadata + 1*4);
+    list->metadata[i].totalTerms = memRead32(sigMetadata + 2*4);
+    list->metadata[i].quality = memRead32(sigMetadata + 3*4);
+    list->metadata[i].offsetBegin = memRead32(sigMetadata + 4*4);
+    list->metadata[i].offsetEnd = memRead32(sigMetadata + 5*4);
+    list->metadata[i].unused7 = memRead32(sigMetadata + 6*4);
+    list->metadata[i].unused8 = memRead32(sigMetadata + 7*4);
 
     clarify[i].list = list;
     clarify[i].i = i;
@@ -548,7 +581,7 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
     newlist.issl_scores[i] = list->issl_scores[j];
     newlist.distances[i] = list->distances[j];
     newlist.docids[i] = list->docids[j];
-    newlist.docnames[i] = list->docnames[j];
+    newlist.metadata[i] = list->metadata[j];
   }
 
   destroyResultList(list);
@@ -654,6 +687,19 @@ void SearchISSLTable()
 {
   int **isslCounts;
   int ***isslTable;
+  
+  const char *topicoutput = Config("RESULTS-PATH");
+  FILE *fo;
+  if (topicoutput) {
+    fo = fopen(topicoutput, "wb");
+    if (!fo) {
+      fprintf(stderr, "The results file \"%s\" could not be opened for writing.\n", topicoutput);
+      exit(1);
+    }
+  } else {
+    fo = stdout;
+  }
+
 
   ISSLHeader isslCfg = readSliceTable(GetMandatoryConfig("ISSL-PATH", "The path to the ISSL table must be provided through the -issl-path (ISSL table) argument"), &isslCounts, &isslTable);
   unsigned char *sigFile;
@@ -745,7 +791,9 @@ void SearchISSLTable()
     WorkerThroughput *thread_data = jobdata[i];
     int doc_count = thread_data->doc_end - thread_data->doc_begin;
     for (int j = 0; j < doc_count; j++) {
-      writeResults(thread_data->doc_begin + j, &thread_data->output[j], top_k_present);
+      int topicid = thread_data->doc_begin + j;
+      const char *docname = (const char *)(sigFile + sigCfg.sig_record_size * topicid);
+      writeResults(fo, topicid, docname, &thread_data->output[j], top_k_present);
     }
   }
 

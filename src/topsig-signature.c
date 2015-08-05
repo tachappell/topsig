@@ -388,7 +388,7 @@ TSemaphore sem_cacheused[SIGCACHESIZE];
 
 static void initCache()
 {
-  cache.fp = fopen(GetMandatoryConfig("SIGNATURE-PATH", "Error: You need to specify a SIGNATURE-PATH to write the signature file out to."), "wb");
+  cache.fp = fopen(GetMandatoryConfig("SIGNATURE-PATH", "Error: You need to specify a path with -signature-path (path) to write the signature file out to."), "wb");
   InitSemaphore(&sem_cachefree, 0, SIGCACHESIZE);
   for (int i = 0; i < SIGCACHESIZE; i++) {
     InitSemaphore(&sem_cacheused[i], 0, 0);

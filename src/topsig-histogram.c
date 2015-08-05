@@ -87,7 +87,7 @@ static SignatureHeader readSigFile(const char *path, unsigned char **buf)
 {
   FILE *fp = fopen(path, "rb");
   if (!fp) {
-    fprintf(stderr, "Unable to open signature file for reading.\n");
+    fprintf(stderr, "The path to a signature file must be provided with the -signature-path (signature file) option.\n");
     exit(1);
   }
 
@@ -114,137 +114,6 @@ static SignatureHeader readSigFile(const char *path, unsigned char **buf)
   fclose(fp);
   *buf = buffer;
   return cfg;
-}
-
-static ResultList createResultList(int k)
-{
-  ResultList R;
-  R.results = k;
-  size_t buffer_size = sizeof(int) * k;
-  R.issl_scores = malloc(buffer_size);
-  R.distances = malloc(buffer_size);
-  R.docIds = malloc(buffer_size);
-  R.docnames = malloc(sizeof(char *) * k);
-
-  memset(R.issl_scores, 0, buffer_size);
-  memset(R.distances, 0, buffer_size);
-  memset(R.docIds, 0, buffer_size);
-
-  return R;
-}
-
-static void destroyResultList(ResultList *R)
-{
-  free(R->issl_scores);
-  free(R->distances);
-  free(R->docIds);
-  free(R->docnames);
-}
-
-static int compareResultLists(const void *A, const void *B)
-{
-  const ClarifyEntry *a = A;
-  const ClarifyEntry *b = B;
-
-  const ResultList *list = a->list;
-
-  return list->distances[a->i] - list->distances[b->i];
-}
-
-static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const unsigned char *sig_file)
-{
-  static unsigned char *mask = NULL;
-  if (!mask) {
-    mask = malloc(cfg->sig_width / 8);
-    memset(mask, 0xFF, cfg->sig_width / 8);
-  }
-
-  ClarifyEntry *clarify = malloc(sizeof(ClarifyEntry) * list->results);
-
-  for (int i = 0; i < list->results; i++) {
-    list->distances[i] = cfg->sig_width - list->issl_scores[i];
-    list->docnames[i] = (const char *)(sig_file + ((size_t)cfg->sig_record_size * list->docIds[i]));
-
-    clarify[i].list = list;
-    clarify[i].i = i;
-  }
-  qsort(clarify, list->results, sizeof(ClarifyEntry), compareResultLists);
-
-  ResultList newlist = createResultList(list->results);
-  for (int i = 0; i < list->results; i++) {
-    int j = clarify[i].i;
-    newlist.issl_scores[i] = list->issl_scores[j];
-    newlist.distances[i] = list->distances[j];
-    newlist.docIds[i] = list->docIds[j];
-    newlist.docnames[i] = list->docnames[j];
-  }
-
-  destroyResultList(list);
-  *list = newlist;
-
-  free(clarify);
-}
-
-
-static void Output_Results(int topic_id, const ResultList *list)
-{
-  for (int i = 0; i < list->results; i++) {
-    printf("%d Q0 %s %d %d Topsig-Exhaustive %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i]);
-  }
-}
-
-static void *Throughput_Job(void *input)
-{
-  int topk = atoi(Config("SEARCH-DOC-TOPK"));
-  WorkerThroughput *T = input;
-  const SignatureHeader *sig_cfg = T->sig_cfg;
-
-  unsigned char *mask = NULL;
-  mask = malloc(sig_cfg->sig_width / 8);
-  memset(mask, 0xFF, sig_cfg->sig_width / 8);
-
-  int doc_count = T->doc_end - T->doc_begin;
-
-  const unsigned char *sig_file = T->sig_file;
-  T->output = malloc(sizeof(ResultList) * doc_count);
-
-  int doc_i = 0;
-  for (int doc_cmp = T->doc_begin; doc_cmp < T->doc_end; doc_cmp++) {
-    const unsigned char *sig = sig_file + (size_t)sig_cfg->sig_record_size * doc_cmp + sig_cfg->sig_offset;
-
-
-    T->output[doc_i] = createResultList(topk);
-    ResultList *R = T->output+doc_i;
-    int R_lowest_score = 0;
-    int R_lowest_score_i = 0;
-
-    for (int cmp_to = 0; cmp_to < sig_cfg->num_signatures; cmp_to++) {
-      int docId = cmp_to;
-      const unsigned char *cursig = sig_file + (size_t)sig_cfg->sig_record_size * cmp_to + sig_cfg->sig_offset;
-      int score = sig_cfg->sig_width - DocumentDistance(sig_cfg->sig_width, sig, mask, cursig);
-
-      if (score > R_lowest_score) {
-        R->docIds[R_lowest_score_i] = docId;
-        R->issl_scores[R_lowest_score_i] = score;
-
-        R_lowest_score = INT_MAX;
-        for (int j = 0; j < R->results; j++) {
-          if (R->issl_scores[j] < R_lowest_score) {
-            R_lowest_score = R->issl_scores[j];
-            R_lowest_score_i = j;
-          }
-        }
-      }
-    }
-
-    clarifyResults(sig_cfg, R, sig_file);
-
-    doc_i++;
-  }
-
-  free(mask);
-
-  return NULL;
 }
 
 void HistogramAdd(SignatureHeader *sig_cfg, const unsigned char *sig_file, int *histogram, const unsigned char *sig, const unsigned char *mask, ResultHash *H, int topic_only, int start_from, int must_be_in_table, CategorisedDoc *dochash, const char *sig_fname)
@@ -315,10 +184,10 @@ void RunHistogram()
     }
     fclose(fp);
     Category *C;
-    HASH_FIND_STR(cathash, Config("HISTOGRAM-Category"), C);
+    HASH_FIND_STR(cathash, Config("HISTOGRAM-CATEGORY"), C);
     dochash = C->dochash;
 
-    fprintf(stderr, "Category %s has %d documents\n", Config("HISTOGRAM-Category"), HASH_COUNT(dochash));
+    fprintf(stderr, "Category %s has %d documents\n", Config("HISTOGRAM-CATEGORY"), HASH_COUNT(dochash));
   }
 
   if (Config("HISTOGRAM-QRELS")) {
@@ -404,50 +273,4 @@ void RunHistogram()
       printf("%s %d %.32f\n", curr->fname, curr->hd, (double)histogram[curr->hd] / (double)xcount);
     }
   }
-}
-
-void __RunExhaustiveDocsimSearch()
-{
-  unsigned char *sig_file;
-  SignatureHeader sig_cfg = readSigFile(Config("SIGNATURE-PATH"), &sig_file);
-
-  int thread_count = 1;
-  int search_doc_first = 0;
-  int search_doc_last = 9999;
-  if (Config("THREADS")) {
-    thread_count = atoi(Config("THREADS"));
-  }
-  if (Config("SEARCH-DOC-FIRST"))
-    search_doc_first = atoi(Config("SEARCH-DOC-FIRST"));
-  if (Config("SEARCH-DOC-LAST"))
-    search_doc_last = atoi(Config("SEARCH-DOC-LAST"));
-  int total_docs = search_doc_last - search_doc_first + 1;
-  void **threads = malloc(sizeof(void *) * thread_count);
-  for (int i = 0; i < thread_count; i++) {
-    WorkerThroughput *thread_data = malloc(sizeof(WorkerThroughput));
-    thread_data->sig_cfg = &sig_cfg;
-    thread_data->sig_file = sig_file;
-    thread_data->doc_begin = total_docs * i / thread_count + search_doc_first;
-    thread_data->doc_end = total_docs * (i+1) / thread_count + search_doc_first;
-    threads[i] = thread_data;
-  }
-
-  Timer T = StartTimer();
-
-  DivideWork(threads, Throughput_Job, thread_count);
-
-  for (int i = 0; i < thread_count; i++) {
-    WorkerThroughput *thread_data = threads[i];
-    int doc_count = thread_data->doc_end - thread_data->doc_begin;
-    for (int j = 0; j < doc_count; j++) {
-      Output_Results(thread_data->doc_begin + j, &thread_data->output[j]);
-    }
-  }
-
-  fprintf(stderr, "search time %.2fms\n", TickTimer(&T));
-
-  for (int i = 0; i < thread_count; i++) {
-    free(threads[i]);
-  }
-  free(threads);
 }

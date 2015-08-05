@@ -7,11 +7,8 @@
 #include "topsig-search.h"
 #include "topsig-stats.h"
 
-static void runQuery(Search *S, const char *topic_id, const char *topic_txt, const char *topic_refine, FILE *fp)
+static void runQuery(Search *S, const char *topic_id, int topic_num, const char *topic_txt, const char *topic_refine, FILE *fp)
 {
-  static void (*outputwriter)(FILE *fp, const char *, Results *) = NULL;
-
-  outputwriter = Writer_trec;
   int num = GetIntegerConfig("K", 10);
   Results *R = NULL;
   if (strcmp_lc(Config("TOPIC-REFINE-INVERT"), "true")!=0) {
@@ -27,7 +24,7 @@ static void runQuery(Search *S, const char *topic_id, const char *topic_txt, con
   }
 
 
-  outputwriter(fp, topic_id, R);
+  OutputResults(fp, topic_id, topic_num, R);
 
   FreeResults(R);
 }
@@ -37,6 +34,7 @@ static void readerFilelistRF(Search *S, FILE *in, FILE *out)
   static char topic_fname[512];
   static char topic_fquery[2048];
   static char topic_id[128];
+  int topic_num = 0;
   for (;;) {
     if (fscanf(in, "%s %[^\n]\n", topic_id, topic_fname) < 2) break;
     FILE *fp = fopen(topic_fname, "rb");
@@ -48,7 +46,7 @@ static void readerFilelistRF(Search *S, FILE *in, FILE *out)
     fread(topic_txt, 1, filelen, fp);
     fclose(fp);
     topic_txt[filelen] = '\0';
-    runQuery(S, topic_id, topic_fquery, topic_txt, out);
+    runQuery(S, topic_id, topic_num++, topic_fquery, topic_txt, out);
     free(topic_txt);
   }
 }
@@ -57,9 +55,10 @@ static void readerWSJ(Search *S, FILE *in, FILE *out)
 {
   static char topic_txt[65536];
   static char topic_id[128];
+  int topic_num = 0;
   for (;;) {
     if (fscanf(in, "%s %[^\n]\n", topic_id, topic_txt) < 2) break;
-    runQuery(S, topic_id, topic_txt, NULL, out);
+    runQuery(S, topic_id, topic_num++, topic_txt, NULL, out);
   }
 }
 
@@ -89,6 +88,7 @@ static void readerPlagDet(Search *S, FILE *in, FILE *out)
   static char topic_txt[65536] = "";
   static char topic_txt_cur[65536];
   static char topic_id[128];
+  int topic_num = 0;
   for (;;) {
     int topic_txt_cur_len = 0;
     int c = 0;
@@ -109,7 +109,7 @@ static void readerPlagDet(Search *S, FILE *in, FILE *out)
       sprintf(topic_id, "%d", topicnum);
       printf("%d [%s]\n", topicnum, topic_txt);
       topicnum += strlen(topic_txt);
-      runQuery(S, topic_id, topic_txt, NULL, out);
+      runQuery(S, topic_id, topic_num++, topic_txt, NULL, out);
       topic_txt[0] = '\0';
     }
   }
@@ -117,7 +117,7 @@ static void readerPlagDet(Search *S, FILE *in, FILE *out)
     sprintf(topic_id, "%d", topicnum);
     printf("%d [%s]\n", topicnum, topic_txt);
     topicnum += strlen(topic_txt) + 1;
-    runQuery(S, topic_id, topic_txt, NULL, out);
+    runQuery(S, topic_id, topic_num++, topic_txt, NULL, out);
   }
 }
 
@@ -140,7 +140,7 @@ void RunTopic()
   if (strcmp_lc(topicformat, "filelist_rf")==0) topicReader = readerFilelistRF;
   if (strcmp_lc(topicformat, "plagdet")==0) topicReader = readerPlagDet;
   
-  const char *topicoutput = Config("TOPIC-OUTPUT-PATH");
+  const char *topicoutput = Config("RESULTS-PATH");
   FILE *fo;
   if (topicoutput) {
     fo = fopen(topicoutput, "wb");

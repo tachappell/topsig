@@ -10,7 +10,20 @@ void RunQuery()
   // Initialise term statistics (if relevant)
   Stats_Initcfg();
   
-  char *Q = Config("QUERY-TEXT");
+  // Open results file for writing
+  const char *topicoutput = Config("RESULTS-PATH");
+  FILE *fo;
+  if (topicoutput) {
+    fo = fopen(topicoutput, "wb");
+    if (!fo) {
+      fprintf(stderr, "The results file \"%s\" could not be opened for writing.\n", topicoutput);
+      exit(1);
+    }
+  } else {
+    fo = stdout;
+  }
+  
+  char *Q = GetMandatoryConfig("QUERY-TEXT", "Error: a text query must be provided through the -query-text (query) option.");
   
   Search *S = InitSearch();
   
@@ -18,7 +31,9 @@ void RunQuery()
   int topKOutput = GetIntegerConfig("K-OUTPUT", topK);
   
   Results *R = SearchCollectionQuery(S, Q, topK);
-  PrintResults(R, topKOutput);
+  //PrintResults(R, topKOutput);
+  OutputResults(fo, "0", 0, R);
+  fclose(fo);
   FreeResults(R);
   
   FreeSearch(S);

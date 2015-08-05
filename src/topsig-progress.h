@@ -3,5 +3,6 @@
 
 void InitProgressConfig();
 void ProgressTick(const char *);
+void ProgressFinalise();
 
 #endif

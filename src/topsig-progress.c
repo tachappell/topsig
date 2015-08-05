@@ -18,22 +18,22 @@ struct timeval startTime;
 
 void InitProgressConfig()
 {
-  cfg.type = PROGRESS_NONE;
+  cfg.type = PROGRESS_PERIODIC;
   cfg.period = 1000;
   cfg.totaldocs = 0;
+  
+  const char *configProgress = GetOptionalConfig("OUTPUT-PROGRESS", "periodic");
 
-  if (strcmp_lc(Config("OUTPUT-PROGRESS"),"none")==0) cfg.type = PROGRESS_NONE;
-  if (strcmp_lc(Config("OUTPUT-PROGRESS"),"periodic")==0) cfg.type = PROGRESS_PERIODIC;
-  if (strcmp_lc(Config("OUTPUT-PROGRESS"),"full")==0) cfg.type = PROGRESS_FULL;
+  if (strcmp_lc(configProgress,"none")==0) cfg.type = PROGRESS_NONE;
+  if (strcmp_lc(configProgress,"periodic")==0) cfg.type = PROGRESS_PERIODIC;
+  if (strcmp_lc(configProgress,"full")==0) cfg.type = PROGRESS_FULL;
 
   gettimeofday(&startTime, NULL);
 
-  if (Config("OUTPUT-PERIOD")) cfg.period = atoi(Config("OUTPUT-PERIOD"));
-  if (Config("OUTPUT-PROGRESS-DOCUMENTS")) cfg.totaldocs = atoi(Config("OUTPUT-PROGRESS-DOCUMENTS"));
+  cfg.period = GetIntegerConfig("OUTPUT-PERIOD", 1000);
+  cfg.totaldocs = GetIntegerConfig("TOTAL-DOCUMENTS", 0);
 
   InitSemaphore(&sem_progress, 0, 1);
-
-  if (cfg.totaldocs > 0) fprintf(stderr, "\n");
 }
 
 static int current_docs = 0;
@@ -78,4 +78,12 @@ void ProgressTick(const char *identifier)
   }
 
   PostSemaphore(&sem_progress);
+}
+
+void ProgressFinalise()
+{
+  if (cfg.totaldocs > 0) {
+    // Insert newline because the progress meter code does not add one by itself
+    fprintf(stderr, "\n");
+  }
 }

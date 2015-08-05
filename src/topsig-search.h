@@ -26,7 +26,7 @@ Results *FindHighestScoring_ReuseResults(Search *S, Results *R, const int start,
 
 void MergeResults(Results *, Results *);
 
-void Writer_trec(FILE *out, const char *topic_id, Results *R);
+void OutputResults(FILE *out, const char *topic_id, int topic_num, Results *R);
 
 const char *GetResult(Results *, int);
 void RemoveResult(Results *, int);

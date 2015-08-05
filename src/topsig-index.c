@@ -635,8 +635,11 @@ void RunIndex()
   if (indexedFiles == 0) {
     fprintf(stderr, "Error: no input files specified for indexing. Provide an input file or directory with -target-path (path)\n");
     exit(1);
+  } else {
+    ProgressFinalise();
   }
   Flush_Threaded();
+  
 }
 
 static void addstats(Document *doc)
