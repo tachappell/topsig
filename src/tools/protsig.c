@@ -33,8 +33,7 @@ int read_until(FILE *fp, int c)
 }
 
 struct Signature {
-  double *sig;
-  double sigdiv;
+  int *sig;
   int sigs_included;
   int begin;
   int end;
@@ -47,11 +46,36 @@ int window_size;
 //int signature_kmers = 6;
 int sig_window_size = 10000000;
 int sig_window_advance = 10000000;
-int signature_width = 384;
+int signature_width;
 char filename[MAXNAMELEN + 1];
-int starred_permutations = 0;
-double density = 1.0;
 char excludechar = 'X';
+
+int **shuffle;
+
+void CreateShuffles()
+{
+  // For each residue in the kmer create a random shuffle
+  static randctx R;
+  memset(R.randrsl, 0, sizeof(R.randrsl));
+  randinit(&R, TRUE);
+  
+  int kmerSize = atoi(window_size_param);
+  
+  shuffle = malloc(sizeof(int *) * kmerSize);
+  for (int i = 0; i < kmerSize; i++) {
+    shuffle[i] = malloc(sizeof(int) * signature_width);
+    for (int j = 0; j < signature_width; j++) {
+      shuffle[i][j] = j;
+    }
+    for (int j = 0; j < signature_width; j++) {
+      int shufTo = j + rand(&R) % (signature_width - j);
+      int t = shuffle[i][j];
+      shuffle[i][j] = shuffle[i][shufTo];
+      shuffle[i][shufTo] = t;
+    }
+  }
+  
+}
 
 void writeSigHeader(FILE *fo)
 {
@@ -75,92 +99,74 @@ void writeSigHeader(FILE *fo)
 void CleanSignature(struct Signature *S)
 {
   for (int i = 0; i < signature_width; i++) {
-    S->sig[i] = 0.0;
+    S->sig[i] = 0;
   }
   S->sigs_included = 0;
   S->begin = -1;
   S->end = -1;
-  S->sigdiv = 0;
 }
 
 typedef struct {
   char txt[KMER_MAXLEN+1];
-  double *sig;
+  int *sig;
   UT_hash_handle hh;
 } TermSig;
 TermSig *termsigs = NULL;
 
 void ReadTermSigs(const char *fname)
 {
-  if (strcmp(fname, "NONE")==0) return;
+  fprintf(stderr, "Reading term sigs\n");
   FILE *fp = fopen(fname, "r");
+  // First, find the signature width.
+  fscanf(fp, "%*s");
+  int sw = 0;
+  for (;;) {
+    char tmp[32];
+    fscanf(fp, "%s", tmp);
+    if (!isalpha(tmp[0])) sw++;
+    else break;
+  }
+  fprintf(stderr, "Detected signature width to be %d\n", sw);
+  signature_width = sw;
+  rewind(fp);
+  
   for (;;) {
     char txt[KMER_MAXLEN+1];
     if (fscanf(fp, "%s", txt) < 1) break;
     TermSig *ts = malloc(sizeof(TermSig));
     strcpy(ts->txt, txt);
-    ts->sig = malloc(sizeof(double) * signature_width);
+    ts->sig = malloc(sizeof(int) * signature_width);
     for (int i = 0; i < signature_width; i++) {
-      fscanf(fp, "%lf", &ts->sig[i]);
+      fscanf(fp, "%d", &ts->sig[i]);
     }
     HASH_ADD_STR(termsigs, txt, ts);
   }
   fclose(fp);
 }
 
-#define MAX_MISMATCH_LINE 5
-char *mismatch[256];
-
-void ReadMismatchFile(const char *fname)
-{
-  for (int i = 0; i < 256; i++) {
-    mismatch[i] = NULL;
-  }
-  if (strcmp(fname, "NONE")==0) return;
-
-  FILE *fp = fopen(fname, "r");
-  for (;;) {
-    char mismatch_symbol[2];
-    char mismatch_line[MAX_MISMATCH_LINE+1];
-    
-    if (fscanf(fp, "%s%s", mismatch_symbol, mismatch_line) < 2) break;
-    mismatch[mismatch_symbol[0]] = malloc(strlen(mismatch_line)+1);
-    strcpy(mismatch[mismatch_symbol[0]], mismatch_line);
-  }
-  fclose(fp);
-}
-
 void AddSigFinal(struct Signature *S, const char *term, double wgt)
 {
-  TermSig *ts;
+  
+  
+  char residue[2] = ".";
+  
+  int termLen = strlen(term);
+  for (int i = 0; i < termLen; i++) {
+    residue[0] = term[i];
+    TermSig *ts;
+    HASH_FIND_STR(termsigs, residue, ts);
+    
+    for (int j = 0; j < signature_width; j++) {
+      S->sig[j] += ts->sig[shuffle[i][j]];
+    }
+  }
+  
+  
+  
+  /*
   HASH_FIND_STR(termsigs, term, ts);
   if (!ts) {
-    //fprintf(stderr, "AddSigFinal(%s, %f)\n", term, wgt);
-    static randctx R;
-    memset(R.randrsl, 0, sizeof(R.randrsl));
-    strcpy((char *)(R.randrsl), term);
-    randinit(&R, TRUE);
-    
-    for (int i = 0; i < signature_width; i++) {
-      unsigned int rrr = rand(&R);
-      double r = rrr;
-      r /= UB4MAXVAL;
-      
-      if (density > 0.999999) {
-        S->sig[i] += r * wgt;
-        
-        //fprintf(stderr, "## %f %f\n", r, density);
-      } else {
-        if (r < density) {
-          rrr = rand(&R);
-          r = rrr;
-          r /= UB4MAXVAL;
-          //fprintf(stderr, "R: %f\n", r * wgt);
-          S->sig[i] += r * wgt;
-        }
-      }
-    }
-    S->sigdiv += wgt * density;
+    fprintf
   } else {
     for (int i = 0; i < signature_width; i++) {
       double r = ts->sig[i];
@@ -168,30 +174,14 @@ void AddSigFinal(struct Signature *S, const char *term, double wgt)
     }
     S->sigdiv += wgt;
   }
+  */
 }
 
-void AddMismatches(struct Signature *S, const char *term, double wgt, int startFrom)
-{
-  char tmp[KMER_MAXLEN+1];
-  for (const char *p = term+startFrom; *p != '\0'; p++) {
-    if (mismatch[*p]) {
-      for (const char *m = mismatch[*p]; *m != '\0'; m++) {
-        strcpy(tmp, term);
-        *(p - term + tmp) = *m;
-        //fprintf(stderr, "mismatch %s - %s\n", term, tmp);
-        AddSigFinal(S, tmp, wgt);
-        AddMismatches(S, tmp, wgt, p - term + 1);
-      }
-    }
-  }
-}
-
+/*
 void AddSigPermute(struct Signature *S, const char *term, int permute, int start, int fullpermute, double overallweight)
 {
   if (permute == 0) {
     double wgt = (double)(window_size - fullpermute) / window_size;
-    
-    AddMismatches(S, term, wgt * overallweight, 0);
     AddSigFinal(S, term, wgt * overallweight);
     return;
   }
@@ -203,46 +193,17 @@ void AddSigPermute(struct Signature *S, const char *term, int permute, int start
     AddSigPermute(S, tmpterm, permute - 1, i + 1, fullpermute, overallweight);
   }
 }
+*/
 
 void AddSig(struct Signature *S, const char *term, double weight)
 {
-  for (int i = 0; i <= starred_permutations; i++) {
-    AddSigPermute(S, term, i, 0, i, weight);
-  }
+  AddSigFinal(S, term, weight);
 }
 
 void WriteSig(struct Signature *S)
 {
   if (S->sigs_included == 0) return;
   FILE *fp = S->fp;
-  // Write out signature
-  // ...TODO...
-  
-/*
-  char sigheader[cfg.docnamelen+1];
-  memset(sigheader, 0, cfg.docnamelen+1);
-  //printf("Sizeof %d\n", sizeof(sigheader));
-  
-  //strncpy((char *)sigheader, sig->id, cfg.docnamelen);
-  strcpy(sigheader, sig->id);
-  sigheader[cfg.docnamelen] = '\0'; // clip
-  
-  fwrite(sigheader, 1, sizeof(sigheader), cache.fp);
-
-  fileWrite32(sig->unique_terms, cache.fp);
-  fileWrite32(sig->document_char_length, cache.fp);
-  fileWrite32(sig->total_terms, cache.fp);
-  fileWrite32(sig->quality, cache.fp);
-  fileWrite32(sig->offset_begin, cache.fp);
-  fileWrite32(sig->offset_end, cache.fp);
-  fileWrite32(sig->unused_7, cache.fp);
-  fileWrite32(sig->unused_8, cache.fp);
-  
-  unsigned char bsig[cfg.length / 8];
-  FlattenSignature(sig, bsig, NULL);
-  fwrite(bsig, 1, cfg.length / 8, cache.fp);
-  */
-  
   fwrite(filename, 1, MAXNAMELEN + 1, fp);
   fileWrite32(S->sigs_included, fp);
   fileWrite32(window_size, fp);
@@ -255,17 +216,18 @@ void WriteSig(struct Signature *S)
   
   //printf("    Writing sig: %d-%d\n", S->begin, S->end);
   
+  //fprintf(stderr, "W (%d)", signature_width);
   unsigned char bsig[signature_width / 8];
   memset(bsig, 0, signature_width / 8);
   for (int i = 0; i < signature_width; i++) {
-    double sigval = S->sig[i] / S->sigdiv;
-    if (sigval >= 0.5) {
+    //fprintf(stderr, "%s", S->sig[i] > 0 ? "1" : "0");
+    if (S->sig[i] > 0) {
       int byte = i / 8;
       int bit = i % 8;
       bsig[byte] = bsig[byte] | (128 >> bit);
-      //printf("    Setting %d,%d\n", byte, bit);
     }
   }
+  //fprintf(stderr, "\n");
   fwrite(bsig, 1, signature_width / 8, S->fp);
   CleanSignature(S);
 }
@@ -507,7 +469,7 @@ void ProcessFile(FILE *fi, void (*func)(void *, const char *, int, int), void *S
 int main(int argc, char **argv)
 {
   if (argc < 3) {
-    fprintf(stderr, "usage: (@#) {input fasta} {output sigfile} (kmer size = 6) (sig width = 384) (*perm = 0) (density = 1.0) (excludechar = 'X') (signatures file or NONE) (sig window size) (sig window advance) (mismatch file)\n");
+    fprintf(stderr, "usage: (@#) {input fasta} {output sigfile} {protein signatures file} (kmer size = 6) (excludechar = 'X') (sig window size) (sig window advance)\n");
     return 0;
   }
   int apos = 0;
@@ -525,16 +487,14 @@ int main(int argc, char **argv)
   if ((fi = fopen(argv[apos+1], "r"))) {
     FILE *fo;
     if ((fo = fopen(argv[apos+2], "wb"))) {
-      if (argc >= apos+4) window_size_param = argv[apos+3];
-      if (argc >= apos+5) signature_width = atoi(argv[apos+4]);
-      if (argc >= apos+6) starred_permutations = atoi(argv[apos+5]);
-      if (argc >= apos+7) density = atof(argv[apos+6]);
-      if (argc >= apos+8) excludechar = argv[apos+7][0];
-      if (argc >= apos+9) ReadTermSigs(argv[apos+8]);
-      if (argc >= apos+10) sig_window_size = atoi(argv[apos+9]);
+      ReadTermSigs(argv[apos+3]);
+      if (argc >= apos+5) window_size_param = argv[apos+4];
+      if (argc >= apos+6) excludechar = argv[apos+5][0];
+      if (argc >= apos+7) sig_window_size = atoi(argv[apos+6]);
       sig_window_advance = sig_window_size;
-      if (argc >= apos+11) sig_window_advance = atoi(argv[apos+10]);
-      if (argc >= apos+12) ReadMismatchFile(argv[apos+11]);
+      if (argc >= apos+8) sig_window_advance = atoi(argv[apos+7]);
+      
+      CreateShuffles();
 
       struct Signature S;
       S.sig = malloc(sizeof(double) * signature_width);
@@ -542,76 +502,11 @@ int main(int argc, char **argv)
       CleanSignature(&S);
       writeSigHeader(fo);
       
-      ProcessFile(fi, TrackStats, NULL, 0, 1, 1000000000, 1000000000);
-      rewind(fi);
+      //ProcessFile(fi, TrackStats, NULL, 0, 1, 1000000000, 1000000000);
+      //rewind(fi);
       ProcessFile(fi, CreateKmerSig, &S, process_no, total_processes, sig_window_size, sig_window_advance);
       WriteSig(&S);
-      //rewind(fi);
-      //ProcessFile(fi, CreateKmerSig);
-      
-      
 
-      
-      /*
-      unsigned char *fname_buffer = malloc(cfg.maxnamelen + 1);
-      unsigned char *sig_buffer = malloc(cfg.sig_width / 8);
-      
-      int min_words = 10000000;
-      int max_words = -1;
-      int total_sigs = 0;
-      long long total_words = 0;
-      long long total_uniques = 0;
-      for (;;) {
-        if (fread(fname_buffer, 1, cfg.maxnamelen + 1, fi) == 0) break;
-        int unique_terms = file_read32(fi);
-        int char_len = file_read32(fi);
-        int term_count = file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        total_sigs++;
-        total_words += term_count;
-        total_uniques += unique_terms;
-        if (term_count > max_words)
-          max_words = term_count;
-        if (term_count < min_words)
-          min_words = term_count;
-        fread(fname_buffer, 1, cfg.sig_width / 8, fi); 
-      }
-      rewind(fi);
-      readSigHeader(fi);
-      
-      double avg_len = (double)total_words / (double)total_sigs;
-      double stdev_num = 0.0;
-      for (;;) {
-        if (fread(fname_buffer, 1, cfg.maxnamelen + 1, fi) == 0) break;
-        file_read32(fi);
-        file_read32(fi);
-        int term_count = file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        file_read32(fi);
-        double s = (double)term_count - avg_len;
-        stdev_num += s * s;
-        fread(fname_buffer, 1, cfg.sig_width / 8, fi); 
-      }
-      double stdev = sqrt(stdev_num / total_sigs);
-      
-      
-      printf("Statistics for signature %s\n", argv[1]);
-      printf("  Total words: %lld\n", total_words);
-      printf("  Total uniques: %lld\n", total_uniques);
-      printf("  Total signatures: %d\n", total_sigs);
-      printf("  Average words per sig: %f\n", avg_len);
-      printf("  Standard deviation: %f\n", stdev);
-      printf("  Min: %d    Max: %d\n", min_words, max_words);
-      free(fname_buffer);
-      free(sig_buffer);
-      */
       
       fclose(fo);
     } else {

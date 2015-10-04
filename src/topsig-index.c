@@ -12,6 +12,7 @@
 #include "topsig-stats.h"
 #include "topsig-global.h"
 #include "topsig-document.h"
+#include "topsig-progress.h"
 #include "uthash.h"
 
 #define BUFFER_SIZE (512 * 1024)

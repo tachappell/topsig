@@ -206,7 +206,6 @@ static void writeResults(FILE *fp, int topicId, const char *topicName, const Res
 
 static void *Throughput_Job(void *input)
 {
-  fprintf(stderr, "Starting throughput\n");
   int topk = atoi(Config("K"));
   WorkerThroughput *T = input;
   const SignatureHeader *sig_cfg = T->sig_cfg;
@@ -223,7 +222,7 @@ static void *Throughput_Job(void *input)
   int doc_i = 0;
   for (int doc_cmp = T->doc_begin; doc_cmp < T->doc_end; doc_cmp++) {
     const unsigned char *sig = sigFile + (size_t)sig_cfg->sig_record_size * doc_cmp + sig_cfg->sig_offset;
-    if (doc_cmp % 1000 == 0) fprintf(stderr, "%d\n", doc_cmp);
+
 
     T->output[doc_i] = createResultList(topk);
     ResultList *R = T->output+doc_i;
@@ -261,7 +260,6 @@ static void *Throughput_Job(void *input)
 
 void RunExhaustiveDocsimSearch()
 {
-  fprintf(stderr, "Exhaustive search\n");
   const char *topicoutput = Config("RESULTS-PATH");
   FILE *fo;
   if (topicoutput) {
@@ -274,13 +272,12 @@ void RunExhaustiveDocsimSearch()
     fo = stdout;
   }
   
-  fprintf(stderr, "Reading sig file\n");
   unsigned char *sigFile;
   SignatureHeader sigCfg = readSigFile(Config("SIGNATURE-PATH"), &sigFile);
 
   int threadCount = 1;
   int searchDocFirst = 0;
-  int searchDocLast = 9999;
+  int searchDocLast = (sigCfg.num_signatures - 1);
   if (Config("THREADS")) {
     threadCount = atoi(Config("THREADS"));
   }
@@ -288,12 +285,9 @@ void RunExhaustiveDocsimSearch()
     searchDocFirst = atoi(Config("SEARCH-DOC-FIRST"));
   if (Config("SEARCH-DOC-LAST"))
     searchDocLast = atoi(Config("SEARCH-DOC-LAST"));
-  
   int totalDocs = searchDocLast - searchDocFirst + 1;
-  fprintf(stderr, "Searching total of %d docs\n", totalDocs);
   void **threads = malloc(sizeof(void *) * threadCount);
   for (int i = 0; i < threadCount; i++) {
-    fprintf(stderr, "init thread %d\n", i);
     WorkerThroughput *threadData = malloc(sizeof(WorkerThroughput));
     threadData->sig_cfg = &sigCfg;
     threadData->sigFile = sigFile;
@@ -303,15 +297,15 @@ void RunExhaustiveDocsimSearch()
   }
 
   Timer T = StartTimer();
-  fprintf(stderr, "dividework\n");
+
   DivideWork(threads, Throughput_Job, threadCount);
-  fprintf(stderr, "fin\n");
+
   for (int i = 0; i < threadCount; i++) {
     WorkerThroughput *thread_data = threads[i];
     int doc_count = thread_data->doc_end - thread_data->doc_begin;
     for (int j = 0; j < doc_count; j++) {
       int topicId = thread_data->doc_begin + j;
-      const char *docName = (const char *)(sigFile + sigCfg.sig_record_size * topicId);
+      const char *docName = (const char *)(sigFile + (size_t)sigCfg.sig_record_size * topicId);
       writeResults(fo, topicId, docName, &thread_data->output[j]);
     }
   }

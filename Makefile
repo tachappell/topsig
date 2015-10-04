@@ -110,6 +110,9 @@ topdeal:		src/tools/topdeal.c
 topfilt:		src/tools/topfilt.c
 		gcc ${CCFLAGS} -o topfilt src/tools/topfilt.c
 
+topshrink:		src/tools/topshrink.c
+		gcc ${CCFLAGS} -o topshrink src/tools/topshrink.c
+
 sigview:		src/tools/sigview.c
 		gcc ${CCFLAGS} -o sigview src/tools/sigview.c
 
@@ -121,6 +124,15 @@ plagsummary:		src/tools/plagsummary.c
 
 sigfile_to_ktree:		src/tools/sigfile_to_ktree.c
 		gcc ${CCFLAGS} -o sigfile_to_ktree src/tools/sigfile_to_ktree.c
+
+sigfile_to_text:		src/tools/sigfile_to_text.c
+		gcc ${CCFLAGS} -o sigfile_to_text src/tools/sigfile_to_text.c
+
+sigfile_to_texthash:		src/tools/sigfile_to_texthash.c
+		gcc ${CCFLAGS} -o sigfile_to_texthash src/tools/sigfile_to_texthash.c
+
+text_to_sigfile:		src/tools/text_to_sigfile.c
+		gcc ${CCFLAGS} -o text_to_sigfile src/tools/text_to_sigfile.c
 
 plag-cluster:		src/tools/plag-cluster.c
 		gcc ${CCFLAGS} -Wl,--large-address-aware -o plag-cluster src/tools/plag-cluster.c
@@ -156,4 +168,9 @@ subsig-merge:		src/tools/subsig-merge.c
 		gcc ${CCFLAGS} -o subsig-merge src/tools/subsig-merge.c
 
 fastasig:		src/tools/fastasig.c
-		gcc ${CCFLAGS} -o fastasig src/tools/fastasig.c src/ISAAC-rand.c
+		gcc ${CCFLAGS} -o fastasig src/tools/fastasig.c src/ISAAC-rand.c -lm
+protsig:		src/tools/protsig.c
+		gcc ${CCFLAGS} -o protsig src/tools/protsig.c src/ISAAC-rand.c -lm
+
+trec_remove_duplicates:		src/tools/trec_remove_duplicates.c
+		gcc ${CCFLAGS} -o trec_remove_duplicates src/tools/trec_remove_duplicates.c

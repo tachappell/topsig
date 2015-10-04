@@ -65,7 +65,7 @@ int main(int argc, char **argv)
         max_words = term_count;
       if (term_count < min_words)
         min_words = term_count;
-      fread(fname_buffer, 1, cfg.sig_width / 8, fi);
+      fread(sig_buffer, 1, cfg.sig_width / 8, fi);
     }
     rewind(fi);
     readSigHeader(fi);
@@ -84,12 +84,13 @@ int main(int argc, char **argv)
       fileRead32(fi);
       double s = (double)term_count - avg_len;
       stdev_num += s * s;
-      fread(fname_buffer, 1, cfg.sig_width / 8, fi);
+      fread(sig_buffer, 1, cfg.sig_width / 8, fi);
     }
     double stdev = sqrt(stdev_num / total_sigs);
 
 
     printf("Statistics for signature %s\n", argv[1]);
+    printf("  Signature width: %d\n", cfg.sig_width);
     printf("  Total words: %lld\n", total_words);
     printf("  Total uniques: %lld\n", total_uniques);
     printf("  Total signatures: %d\n", total_sigs);
