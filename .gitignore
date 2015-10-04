@@ -1,3 +1,5 @@
 *.o
 *.opp
 *.swp
+*.cbp
+topsig.layout
