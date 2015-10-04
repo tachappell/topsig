@@ -367,6 +367,26 @@ static void AR_tar(FileHandle *fp, void (*processfile)(Document *))
   }
 }
 
+// Find needle in memory buffer
+void *memstr(const void *haystack, size_t haystackLen, const char *needle)
+{
+  const char *ptr = haystack;
+  size_t needleLen = strlen(needle);
+  const char *needlePtr = needle;
+  
+  for (unsigned int i = 0; i < haystackLen; i++) {
+    if (ptr[i] == *needlePtr) {
+      needlePtr++;
+      if (*needlePtr == '\0') {
+        return (void *)(ptr + i - needleLen + 1);
+      }
+    } else {
+      needlePtr = needle;
+    }
+  }
+  return NULL;
+}
+
 static void AR_wsj(FileHandle *fp,  void (*processfile)(Document *))
 {
   int archiveSize;
@@ -378,20 +398,18 @@ static void AR_wsj(FileHandle *fp,  void (*processfile)(Document *))
   int buflen = ReadFile(buf, BUFFER_SIZE-1, fp);
   int doclen;
   buf[buflen] = '\0';
-
   for (;;) {
-    if ((doc_start = strstr(buf, "<DOC>")) != NULL) {
-      if ((doc_end = strstr(buf, "</DOC>")) != NULL) {
+    if ((doc_start = memstr(buf, buflen, "<DOC>")) != NULL) {
+      if ((doc_end = memstr(buf, buflen, "</DOC>")) != NULL) {
         doc_end += 7;
         doclen = doc_end-buf;
 
-        char *title_start = strstr(buf, "<DOCNO>");
-        char *title_end = strstr(buf, "</DOCNO>");
-
-        title_start += 1;
-        title_end -= 1;
-
+        char *title_start = memstr(buf, buflen, "<DOCNO>");
+        char *title_end = memstr(buf, buflen, "</DOCNO>");
         title_start += 7;
+        
+        if (!isgraph(*title_start)) title_start += 1;
+        if (!isgraph(*(title_end-1))) title_end -= 1;
 
         int title_len = title_end - title_start;
         char *filename = malloc(title_len + 1);
@@ -456,7 +474,7 @@ static void AR_newline(FileHandle *fp,  void (*processfile)(Document *))
         char *filedat = malloc(archiveSize + 1);
         memcpy(filedat, doc_start, archiveSize);
         filedat[archiveSize] = '\0';
-
+        
         Document *newDoc = NewDocument(NULL, NULL);
         newDoc->docId = filename;
         newDoc->data = filedat;
