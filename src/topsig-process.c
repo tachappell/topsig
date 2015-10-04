@@ -42,6 +42,7 @@ typedef struct {
 
 static DocTerm *addTerm(DocTerm *termlist, char *term, int termlen, unsigned int *docterms, int term_offset)
 {
+  if (termlen > TERM_MAX_LEN) return termlist;
   strToLower(term);
   Stem(term);
 
@@ -254,7 +255,7 @@ void InitProcessConfig()
   const char *charmask = GetOptionalConfig("CHARMASK", "alnum");
   int alpha = strcmp_lc(charmask, "alpha")==0 ? 1 : 0;
   int alnum = strcmp_lc(charmask, "alnum")==0 ? 1 : 0;
-  int all = strcmp_lc(charmask," all")==0 ? 1 : 0;
+  int all = strcmp_lc(charmask, "all")==0 ? 1 : 0;
 
   for (int i = 0; i < 256; i++) {
     cfg.charmask[i] = (isalpha(i) && alpha) || (isalnum(i) && alnum) || (isgraph(i) && all);

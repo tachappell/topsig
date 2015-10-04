@@ -51,6 +51,10 @@ void *start_work_writer(void *sigcache_ptr)
     SignatureFlush();
     ThreadYield();
   }
+  while (threads_running > 0) {
+    SignatureFlush();
+    ThreadYield();
+  }
   return NULL;
 }
 

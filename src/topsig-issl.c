@@ -227,8 +227,8 @@ static int ***buildSliceTable(const SignatureHeader *cfg, FILE *fp, int num_slic
 void CreateISSLTable()
 {
   int avg_slicewidth = 16;
-  if (Config("ISL_SLICEWIDTH")) {
-    avg_slicewidth = atoi(Config("ISL_SLICEWIDTH"));
+  if (Config("ISSL-SLICEWIDTH")) {
+    avg_slicewidth = atoi(Config("ISSL-SLICEWIDTH"));
     if ((avg_slicewidth <= 0) || (avg_slicewidth >= 31)) {
       fprintf(stderr, "Error: slice widths outside of the range 1-30 are currently not supported.\n");
       exit(1);
@@ -659,6 +659,7 @@ static void *runThreadedSearch(void *input, void *thread_data)
 
   int doc_i = 0;
   for (int doc_cmp = T->doc_begin; doc_cmp < T->doc_end; doc_cmp++) {
+    if (doc_cmp % 1000 == 0) fprintf(stderr, "%d\n", doc_cmp);
     const unsigned char *sig = sigFile + (size_t)sigCfg->sig_record_size * doc_cmp + sigCfg->sig_offset;
     int slice_pos = 0;
     for (int slice = 0; slice < isslCfg->num_slices; slice++) {
@@ -685,6 +686,7 @@ static void *runThreadedSearch(void *input, void *thread_data)
 
 void SearchISSLTable()
 {
+  fprintf(stderr, "SearchISSLTable\n");
   int **isslCounts;
   int ***isslTable;
   
@@ -700,9 +702,10 @@ void SearchISSLTable()
     fo = stdout;
   }
 
-
+  fprintf(stderr, "Reading ISSL table\n");
   ISSLHeader isslCfg = readSliceTable(GetMandatoryConfig("ISSL-PATH", "The path to the ISSL table must be provided through the -issl-path (ISSL table) argument"), &isslCounts, &isslTable);
   unsigned char *sigFile;
+  fprintf(stderr, "Reading sig file\n");
   SignatureHeader sigCfg = readSigFile(GetMandatoryConfig("SIGNATURE-PATH", "The path to the signature file must be provided through the -signature-path (signature file) argument"), &sigFile, isslCfg.signature_count);
 
   int nVariants = 1 << isslCfg.avg_slicewidth;
@@ -758,10 +761,13 @@ void SearchISSLTable()
   if (top_k_rerank < top_k_present) top_k_rerank = top_k_present;
 
   int total_docs = search_doc_last - search_doc_first + 1;
+  
+  fprintf(stderr, "Searching %d docs\n", total_docs);
 
   void **jobdata = malloc(sizeof(void *) * jobCount);
   void **threaddata = malloc(sizeof(void *) * threadCount);
   for (int i = 0; i < jobCount; i++) {
+    fprintf(stderr, "Starting job %d\n", i);
     WorkerThroughput *perJobData = malloc(sizeof(WorkerThroughput));
     perJobData->sigCfg = &sigCfg;
     perJobData->isslCfg = &isslCfg;

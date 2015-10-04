@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <limits.h>
+#include <time.h>
 #include "topsig-config.h"
 #include "topsig-search.h"
 #include "topsig-global.h"
@@ -385,7 +386,11 @@ void ApplyClassFeedback(Search *S, Results *R, char *docName)
 
     double dsig[S->cfg.length];
     memset(&dsig, 0, S->cfg.length * sizeof(double));
-    double sample_2 = ((double)sample) * 8;
+    double w = 8;
+    if (Config("PSEUDO-FEEDBACK-W"))
+      w = atof(Config("PSEUDO-FEEDBACK-W"));
+    
+    double sample_2 = ((double)sample) * w;
 
     struct DocumentClass *queryClass;
     HASH_FIND_STR(S->cfg.fb_classTable, docName, queryClass);
@@ -502,7 +507,11 @@ void ApplyBlindFeedback(Search *S, Results *R, int sample)
   for (int pf_iteration = 0; pf_iteration < S->cfg.prf_rerankiters; pf_iteration++) {
     double dsig[S->cfg.length];
     memset(&dsig, 0, S->cfg.length * sizeof(double));
-    double sample_2 = ((double)sample) * 8;
+    double w = 8;
+    if (Config("PSEUDO-FEEDBACK-W"))
+      w = atof(Config("PSEUDO-FEEDBACK-W"));
+    
+    double sample_2 = ((double)sample) * w;
 
     for (int i = 0 + igf; i < sample + igf; i++) {
         double di = (i - igf);
@@ -939,6 +948,10 @@ Results *SearchCollection(Search *S, Signature *sig, const int topk)
   // Determine the maximum number of signatures that can fit in the allocated cache
   size_t max_cached_sigs = (size_t)S->cache_size * 1024 * 1024 / sig_record_size;
 
+  {
+      struct timespec before, after;
+      clock_gettime(CLOCK_MONOTONIC, &before);
+      
   int reached_end = 0;
   while (!reached_end) {
     if (S->entire_file_cached != 1) {
@@ -986,22 +999,36 @@ Results *SearchCollection(Search *S, Signature *sig, const int topk)
       R = result;
     }
   }
+  
+      clock_gettime(CLOCK_MONOTONIC, &after);
+      double before_secs = (double)before.tv_sec * 1000000000.0 + before.tv_nsec;
+      double after_secs = (double)after.tv_sec * 1000000000.0 + after.tv_nsec;
+      fprintf(stderr, "SEARCH TIME: %.0f nanoseconds\n", after_secs - before_secs);
+  }
 
   qsort(R->res, topk, sizeof(R->res[0]), result_compar);
   
   removeNullResults(R);
 
   if (S->cfg.fb_classTable) {
-    static int dinesha_queryid = 0;
-    dinesha_queryid++;
+    // This is a hack to allow the query # to be accessed
+    // This is NOT thread-safe
+    static int queryId = 0;
+    queryId++;
     char docName[32];
-    sprintf(docName, "%04d", dinesha_queryid);
+    sprintf(docName, "%04d", queryId);
 
     ApplyClassFeedback(S, R, docName);
   } else {
 
     if (S->cfg.pseudofeedback > 0) {
+      struct timespec before, after;
+      clock_gettime(CLOCK_MONOTONIC, &before);
       ApplyBlindFeedback(S, R, S->cfg.pseudofeedback);
+      clock_gettime(CLOCK_MONOTONIC, &after);
+      double before_secs = (double)before.tv_sec * 1000000000.0 + before.tv_nsec;
+      double after_secs = (double)after.tv_sec * 1000000000.0 + after.tv_nsec;
+      fprintf(stderr, "FB TIME: %.0f nanoseconds\n", after_secs - before_secs);
     }
   }
 

@@ -8,6 +8,7 @@
 #include "topsig-config.h"
 #include "topsig-search.h"
 #include "topsig-thread.h"
+#include "topsig-resultwriter.h"
 
 typedef struct {
   int header_size;
@@ -19,13 +20,24 @@ typedef struct {
 } SignatureHeader;
 
 typedef struct {
+  const char *docname;
+  
+  int uniqueTerms;
+  int documentCharLength;
+  int totalTerms;
+  int quality;
+  int offsetBegin;
+  int offsetEnd;
+  int unused7;
+  int unused8;
+} Metadata;
+
+typedef struct {
   int results;
   int *issl_scores;
   int *distances;
   int *docids;
-  int *offset_begins;
-  int *offset_ends;
-  const char **docnames;
+  Metadata *metadata;
 } ResultList;
 
 typedef struct {
@@ -35,7 +47,7 @@ typedef struct {
 
 typedef struct {
   const SignatureHeader *sig_cfg;
-  const unsigned char *sig_file;
+  const unsigned char *sigFile;
   int doc_begin;
   int doc_end;
   ResultList *output;
@@ -104,10 +116,8 @@ static ResultList createResultList(int k)
   size_t buffer_size = sizeof(int) * k;
   R.issl_scores = malloc(buffer_size);
   R.distances = malloc(buffer_size);
-  R.offset_begins = malloc(buffer_size);
-  R.offset_ends = malloc(buffer_size);
   R.docids = malloc(buffer_size);
-  R.docnames = malloc(sizeof(char *) * k);
+  R.metadata = malloc(sizeof(Metadata) * k);
 
   memset(R.issl_scores, 0, buffer_size);
   memset(R.distances, 0, buffer_size);
@@ -121,7 +131,7 @@ static void destroyResultList(ResultList *R)
   free(R->issl_scores);
   free(R->distances);
   free(R->docids);
-  free(R->docnames);
+  free(R->metadata);
 }
 
 static int compareResultLists(const void *A, const void *B)
@@ -134,7 +144,7 @@ static int compareResultLists(const void *A, const void *B)
   return list->distances[a->i] - list->distances[b->i];
 }
 
-static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const unsigned char *sig_file)
+static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const unsigned char *sigFile)
 {
   static unsigned char *mask = NULL;
   if (!mask) {
@@ -146,9 +156,21 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
 
   for (int i = 0; i < list->results; i++) {
     list->distances[i] = cfg->sig_width - list->issl_scores[i];
-    list->docnames[i] = (const char *)(sig_file + ((size_t)cfg->sig_record_size * list->docids[i]));
-    list->offset_begins[i] = *(int *)(sig_file + ((size_t)cfg->sig_record_size * list->docids[i]) + cfg->max_name_len + 1 + 4*4);
-    list->offset_ends[i] = *(int *)(sig_file + ((size_t)cfg->sig_record_size * list->docids[i]) + cfg->max_name_len + 1 + 5*4);
+    
+    const char *sigDocname = (const char *)(sigFile + ((size_t)cfg->sig_record_size * list->docids[i]));
+    
+    list->metadata[i].docname = sigDocname;
+    
+    unsigned const char *sigMetadata = (unsigned const char *)(sigDocname + cfg->max_name_len + 1);
+    
+    list->metadata[i].uniqueTerms = memRead32(sigMetadata + 0*4);
+    list->metadata[i].documentCharLength = memRead32(sigMetadata + 1*4);
+    list->metadata[i].totalTerms = memRead32(sigMetadata + 2*4);
+    list->metadata[i].quality = memRead32(sigMetadata + 3*4);
+    list->metadata[i].offsetBegin = memRead32(sigMetadata + 4*4);
+    list->metadata[i].offsetEnd = memRead32(sigMetadata + 5*4);
+    list->metadata[i].unused7 = memRead32(sigMetadata + 6*4);
+    list->metadata[i].unused8 = memRead32(sigMetadata + 7*4);
 
     clarify[i].list = list;
     clarify[i].i = i;
@@ -161,10 +183,8 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
     int j = clarify[i].i;
     newlist.issl_scores[i] = list->issl_scores[j];
     newlist.distances[i] = list->distances[j];
-    newlist.offset_begins[i] = list->offset_begins[j];
-    newlist.offset_ends[i] = list->offset_ends[j];
     newlist.docids[i] = list->docids[j];
-    newlist.docnames[i] = list->docnames[j];
+    newlist.metadata[i] = list->metadata[j];
   }
 
   destroyResultList(list);
@@ -174,16 +194,20 @@ static void clarifyResults(const SignatureHeader *cfg, ResultList *list, const u
 }
 
 
-static void Output_Results(int topic_id, const ResultList *list)
+static void writeResults(FILE *fp, int topicId, const char *topicName, const ResultList *list)
 {
-  for (int i = 0; i < list->results; i++) {
-    printf("%d Q0 %s %d %d Topsig-Exhaustive %d %d %d\n", topic_id, list->docnames[i], i + 1, 1000000 - i, list->distances[i], list->offset_begins[i], list->offset_ends[i]);
+  int top_k = list->results;
+  const char *format = GetOptionalConfig("RESULTS-FORMAT", "%T Q0 %D %r %s Topsig-Exhaustive %h\\n");
+  for (int i = 0; i < top_k; i++) {
+    WriteResult(fp, format, topicId, topicName, list->docids[i], list->metadata[i].docname, i + 1, 1000000 - i, list->distances[i], list->metadata[i].uniqueTerms, list->metadata[i].documentCharLength, list->metadata[i].totalTerms, list->metadata[i].quality, list->metadata[i].offsetBegin, list->metadata[i].offsetEnd, list->metadata[i].unused7, list->metadata[i].unused8);
   }
 }
 
+
 static void *Throughput_Job(void *input)
 {
-  int topk = atoi(Config("SEARCH-DOC-TOPK"));
+  fprintf(stderr, "Starting throughput\n");
+  int topk = atoi(Config("K"));
   WorkerThroughput *T = input;
   const SignatureHeader *sig_cfg = T->sig_cfg;
 
@@ -193,13 +217,13 @@ static void *Throughput_Job(void *input)
 
   int doc_count = T->doc_end - T->doc_begin;
 
-  const unsigned char *sig_file = T->sig_file;
+  const unsigned char *sigFile = T->sigFile;
   T->output = malloc(sizeof(ResultList) * doc_count);
 
   int doc_i = 0;
   for (int doc_cmp = T->doc_begin; doc_cmp < T->doc_end; doc_cmp++) {
-    const unsigned char *sig = sig_file + (size_t)sig_cfg->sig_record_size * doc_cmp + sig_cfg->sig_offset;
-
+    const unsigned char *sig = sigFile + (size_t)sig_cfg->sig_record_size * doc_cmp + sig_cfg->sig_offset;
+    if (doc_cmp % 1000 == 0) fprintf(stderr, "%d\n", doc_cmp);
 
     T->output[doc_i] = createResultList(topk);
     ResultList *R = T->output+doc_i;
@@ -208,7 +232,7 @@ static void *Throughput_Job(void *input)
 
     for (int cmp_to = 0; cmp_to < sig_cfg->num_signatures; cmp_to++) {
       int docId = cmp_to;
-      const unsigned char *cursig = sig_file + (size_t)sig_cfg->sig_record_size * cmp_to + sig_cfg->sig_offset;
+      const unsigned char *cursig = sigFile + (size_t)sig_cfg->sig_record_size * cmp_to + sig_cfg->sig_offset;
       int score = sig_cfg->sig_width - DocumentDistance(sig_cfg->sig_width, sig, mask, cursig);
 
       if (score > R_lowest_score) {
@@ -225,7 +249,7 @@ static void *Throughput_Job(void *input)
       }
     }
 
-    clarifyResults(sig_cfg, R, sig_file);
+    clarifyResults(sig_cfg, R, sigFile);
 
     doc_i++;
   }
@@ -237,8 +261,22 @@ static void *Throughput_Job(void *input)
 
 void RunExhaustiveDocsimSearch()
 {
+  fprintf(stderr, "Exhaustive search\n");
+  const char *topicoutput = Config("RESULTS-PATH");
+  FILE *fo;
+  if (topicoutput) {
+    fo = fopen(topicoutput, "wb");
+    if (!fo) {
+      fprintf(stderr, "The results file \"%s\" could not be opened for writing.\n", topicoutput);
+      exit(1);
+    }
+  } else {
+    fo = stdout;
+  }
+  
+  fprintf(stderr, "Reading sig file\n");
   unsigned char *sigFile;
-  SignatureHeader sigcfg = readSigFile(Config("SIGNATURE-PATH"), &sigFile);
+  SignatureHeader sigCfg = readSigFile(Config("SIGNATURE-PATH"), &sigFile);
 
   int threadCount = 1;
   int searchDocFirst = 0;
@@ -250,26 +288,31 @@ void RunExhaustiveDocsimSearch()
     searchDocFirst = atoi(Config("SEARCH-DOC-FIRST"));
   if (Config("SEARCH-DOC-LAST"))
     searchDocLast = atoi(Config("SEARCH-DOC-LAST"));
+  
   int totalDocs = searchDocLast - searchDocFirst + 1;
+  fprintf(stderr, "Searching total of %d docs\n", totalDocs);
   void **threads = malloc(sizeof(void *) * threadCount);
   for (int i = 0; i < threadCount; i++) {
+    fprintf(stderr, "init thread %d\n", i);
     WorkerThroughput *threadData = malloc(sizeof(WorkerThroughput));
-    threadData->sig_cfg = &sigcfg;
-    threadData->sig_file = sigFile;
+    threadData->sig_cfg = &sigCfg;
+    threadData->sigFile = sigFile;
     threadData->doc_begin = totalDocs * i / threadCount + searchDocFirst;
     threadData->doc_end = totalDocs * (i+1) / threadCount + searchDocFirst;
     threads[i] = threadData;
   }
 
   Timer T = StartTimer();
-
+  fprintf(stderr, "dividework\n");
   DivideWork(threads, Throughput_Job, threadCount);
-
+  fprintf(stderr, "fin\n");
   for (int i = 0; i < threadCount; i++) {
     WorkerThroughput *thread_data = threads[i];
     int doc_count = thread_data->doc_end - thread_data->doc_begin;
     for (int j = 0; j < doc_count; j++) {
-      Output_Results(thread_data->doc_begin + j, &thread_data->output[j]);
+      int topicId = thread_data->doc_begin + j;
+      const char *docName = (const char *)(sigFile + sigCfg.sig_record_size * topicId);
+      writeResults(fo, topicId, docName, &thread_data->output[j]);
     }
   }
 
